@@ -1,6 +1,9 @@
 :root {
-  --green: #1f4d3a;
-  --green-2: #2f6b52;
+  --brand: #1f4d3a;      /* header, player, primary buttons */
+  --accent: #2f6b52;     /* links, pins, checkmarks */
+  --on-accent-btn: #fff;
+  --green: var(--brand);
+  --green-2: var(--accent);
   --bg: #f6f5f1;
   --card: #ffffff;
   --text: #1c1c1a;
@@ -135,3 +138,24 @@ a { color: var(--green-2); }
   font-weight: 600; font-size: 15px; padding: 4px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .plcontrols { display: flex; justify-content: space-around; align-items: center; }
+
+/* List / Map toggle */
+.seg { display: flex; margin: 10px 12px 0; background: var(--line); border-radius: 10px; padding: 3px; }
+.seg button { flex: 1; border: 0; background: none; padding: 7px 0; border-radius: 8px; font-weight: 600; font-size: 15px; color: var(--muted); }
+.seg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+
+/* Map */
+.mapwrap { position: relative; margin: 0 12px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line);
+  height: calc(100vh - 230px - var(--safe-t) - var(--safe-b)); min-height: 320px; }
+#map { position: absolute; inset: 0; background: #e8e6df; }
+.mapbtn { position: absolute; right: 10px; bottom: 10px; z-index: 500; width: 46px; height: 46px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--card); font-size: 22px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.pin { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.pin.read { background: #9a988f; }
+.me { width: 18px; height: 18px; border-radius: 50%; background: #2a7de1; border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(42,125,225,.35); }
+.leaflet-popup-content { margin: 10px 12px; font: 15px/1.35 -apple-system, system-ui, sans-serif; }
+.popt { font-weight: 650; }
+.popd { color: #6b6a64; font-size: 13px; margin: 2px 0 8px; }
+.popbtn { border: 0; background: var(--brand); color: #fff; border-radius: 8px; padding: 7px 12px; font-weight: 600; }
+.voicenote { font-size: 13px; color: var(--muted); margin: -2px 0 10px; }
+#settingsView .btn { display: block; width: 100%; margin: 8px 0; }

@@ -12,6 +12,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -30,6 +31,10 @@
   </div>
 
   <main id="listView">
+    <div class="seg" role="tablist">
+      <button id="tabList" class="on" role="tab">List</button>
+      <button id="tabMap" role="tab">Map</button>
+    </div>
     <section class="locbar">
       <div id="locStatus" class="muted">Finding your location…</div>
       <div class="radius">
@@ -49,6 +54,10 @@
     </section>
     <ul id="list" class="list"></ul>
     <p id="listEmpty" class="muted center hidden"></p>
+    <div id="mapWrap" class="mapwrap hidden">
+      <div id="map"></div>
+      <button id="recenterBtn" class="mapbtn" aria-label="Center on me">◎</button>
+    </div>
   </main>
 
   <article id="articleView" class="sheet hidden" aria-live="polite">
@@ -68,6 +77,26 @@
     </div>
     <div class="articlebody">
       <h2>Settings</h2>
+      <h3>AI voice</h3>
+      <label class="field">OpenAI API key
+        <input type="password" id="aiKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-proj-…">
+      </label>
+      <p class="muted small">Stored only on this phone. Leave blank to use the iPhone voice.</p>
+      <label class="field">AI voice style
+        <select id="aiVoiceSel">
+          <option value="coral">Coral (warm, female)</option>
+          <option value="nova">Nova (bright, female)</option>
+          <option value="sage">Sage (calm, female)</option>
+          <option value="shimmer">Shimmer (soft, female)</option>
+          <option value="ash">Ash (clear, male)</option>
+          <option value="ballad">Ballad (expressive, male)</option>
+          <option value="onyx">Onyx (deep, male)</option>
+          <option value="verse">Verse (lively, male)</option>
+        </select>
+      </label>
+      <button id="testAiBtn" class="btn secondary">Test AI voice</button>
+      <p id="aiStatus" class="muted small"></p>
+      <h3>iPhone voice (used offline)</h3>
       <label class="field">Voice
         <select id="voiceSel"></select>
       </label>
@@ -79,6 +108,7 @@
       <p class="small">Articles from <a href="https://en.wikipedia.org" target="_blank" rel="noopener">English Wikipedia</a>, CC BY-SA 4.0.</p>
       <p id="storageInfo" class="muted small"></p>
       <button id="clearReadBtn" class="btn secondary">Clear "read" marks</button>
+      <button id="clearAudioBtn" class="btn secondary">Delete saved AI audio</button>
       <p class="muted small" id="versionInfo"></p>
     </div>
   </section>
@@ -94,6 +124,7 @@
     </div>
   </div>
 
+  <script src="vendor/leaflet/leaflet.js"></script>
   <script src="lib.js"></script>
   <script src="app.js"></script>
 </body>

@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
   const W = window.WW;
   const $ = (id) => document.getElementById(id);
   const API = 'https://en.wikipedia.org/w/api.php';
@@ -17,8 +17,11 @@
     function open() {
       if (!p) {
         p = new Promise((res, rej) => {
-          const r = indexedDB.open('wikiwalk', 1);
-          r.onupgradeneeded = () => { const d = r.result; d.createObjectStore('articles'); d.createObjectStore('kv'); };
+          const r = indexedDB.open('wikiwalk', 2);
+          r.onupgradeneeded = () => {
+            const d = r.result;
+            for (const name of ['articles', 'kv', 'audio']) if (!d.objectStoreNames.contains(name)) d.createObjectStore(name);
+          };
           r.onsuccess = () => res(r.result);
           r.onerror = () => rej(r.error);
         });
@@ -37,6 +40,7 @@
     return {
       get: (s, k) => req(s, 'readonly', (os) => os.get(k)),
       put: (s, k, v) => req(s, 'readwrite', (os) => os.put(v, k)),
+      clear: (s) => req(s, 'readwrite', (os) => os.clear()),
     };
   })();
 
@@ -110,6 +114,7 @@
     S.acc = p.coords.accuracy;
     S.fixTime = Date.now();
     updateLocStatus();
+    drawMe();
     maybeRefresh();
   }
   function onPosErr(e) {
@@ -135,6 +140,8 @@
     S.center = null;
     $('placePicker').classList.add('hidden');
     updateLocStatus();
+    drawMe();
+    centerMap();
     maybeRefresh();
   }
   function updateLocStatus() {
@@ -187,14 +194,20 @@
       .sort((a, b) => b[1] - a[1]).slice(0, ids.length - 3000).forEach(([id]) => delete S.seen[id]);
   }
 
-  function render() {
-    if (!S.pos) return;
-    S.lastSortPos = { ...S.pos };
-    const items = Object.values(S.seen).map((p) => ({
+  function currentItems() {
+    if (!S.pos) return [];
+    return Object.values(S.seen).map((p) => ({
       ...p,
       d: W.distanceM(S.pos.lat, S.pos.lon, p.lat, p.lon),
       b: W.bearingDeg(S.pos.lat, S.pos.lon, p.lat, p.lon),
     })).filter((p) => p.d <= S.radius * 1.05).sort((a, b) => a.d - b.d);
+  }
+
+  function render() {
+    if (!S.pos) return;
+    S.lastSortPos = { ...S.pos };
+    const items = currentItems();
+    drawPins(items);
 
     const ul = $('list');
     ul.textContent = '';
@@ -213,13 +226,84 @@
       ul.appendChild(li);
     }
     const empty = $('listEmpty');
-    if (items.length) { empty.classList.add('hidden'); return; }
+    if (items.length || view !== 'list') { empty.classList.add('hidden'); return; }
     empty.classList.remove('hidden');
     const r = $('radiusSel').selectedOptions[0].textContent;
     if (S.loading) empty.textContent = 'Looking for nearby articles…';
     else if (S.fromCache || !navigator.onLine) empty.textContent = "You're offline, and nothing is saved for this spot yet. Articles you've already opened still work.";
     else empty.textContent = 'No Wikipedia articles within ' + r + '. Try a bigger radius.';
   }
+
+  /* ---------- Map ---------- */
+  let map = null, meMarker = null, accCircle = null, pinLayer = null, follow = true, pinKey = '';
+  let view = 'list';
+  const zoomFor = (r) => (r <= 402 ? 17 : r <= 805 ? 16 : r <= 1609 ? 15 : 14);
+  function setView(v) {
+    view = v;
+    $('tabList').classList.toggle('on', v === 'list');
+    $('tabMap').classList.toggle('on', v === 'map');
+    $('list').classList.toggle('hidden', v !== 'list');
+    $('mapWrap').classList.toggle('hidden', v !== 'map');
+    if (v === 'map') {
+      $('listEmpty').classList.add('hidden');
+      if (!window.L) { $('mapWrap').innerHTML = '<p class="muted center">The map could not load.</p>'; return; }
+      initMap();
+      setTimeout(() => { map.invalidateSize(); pinKey = ''; drawMe(); render(); centerMap(); }, 60);
+    } else render();
+    ls.set('view', v);
+  }
+  function initMap() {
+    if (map) return;
+    map = L.map('map', { zoomControl: false });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, crossOrigin: true,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(map);
+    pinLayer = L.layerGroup().addTo(map);
+    map.on('dragstart', () => { follow = false; });
+    if (S.pos) map.setView([S.pos.lat, S.pos.lon], zoomFor(S.radius));
+    else map.setView([45.764, 4.8357], 13);
+  }
+  function centerMap() {
+    if (!map || !S.pos) return;
+    follow = true;
+    map.setView([S.pos.lat, S.pos.lon], zoomFor(S.radius));
+  }
+  function drawMe() {
+    if (!map || !S.pos) return;
+    const ll = [S.pos.lat, S.pos.lon];
+    if (!meMarker) {
+      accCircle = L.circle(ll, { radius: S.acc || 0, weight: 1, color: '#2a7de1', fillOpacity: 0.08, interactive: false }).addTo(map);
+      meMarker = L.marker(ll, { icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [18, 18] }), interactive: false, zIndexOffset: 1000 }).addTo(map);
+    } else { meMarker.setLatLng(ll); accCircle.setLatLng(ll); }
+    accCircle.setRadius(S.source === 'gps' ? (S.acc || 0) : 0);
+    if (follow && view === 'map') map.panTo(ll, { animate: true });
+  }
+  function drawPins(items) {
+    if (!map || view !== 'map') return;
+    const key = items.map((p) => p.id + (S.read.has(p.id) ? 'r' : '')).join(',');
+    if (key === pinKey) return; // unchanged: keep open popups
+    pinKey = key;
+    pinLayer.clearLayers();
+    for (const p of items) {
+      const m = L.marker([p.lat, p.lon], {
+        icon: L.divIcon({ className: '', html: '<div class="pin' + (S.read.has(p.id) ? ' read' : '') + '"></div>', iconSize: [22, 22] }),
+        title: p.title,
+      });
+      m.bindPopup(() => {
+        const live = currentItems().find((x) => x.id === p.id) || p;
+        const d = document.createElement('div');
+        d.innerHTML = '<div class="popt">' + esc(p.title) + '</div><div class="popd">' + W.formatDist(live.d) + ' ' + W.compass(live.b) +
+          (p.desc ? ' · ' + esc(p.desc) : '') + '</div><button class="popbtn">Open</button>';
+        d.querySelector('button').onclick = () => { map.closePopup(); openArticle(p); };
+        return d;
+      });
+      pinLayer.addLayer(m);
+    }
+  }
+  $('tabList').onclick = () => setView('list');
+  $('tabMap').onclick = () => setView('map');
+  $('recenterBtn').onclick = centerMap;
 
   function updateNet() {
     const chip = $('netChip');
@@ -287,7 +371,8 @@
     if (art.desc) meta += (meta ? ' · ' : '') + art.desc;
     let h = '<h2>' + esc(art.title) + '</h2>';
     if (meta) h += '<div class="meta">' + esc(meta) + '</div>';
-    if ('speechSynthesis' in window) h += '<button id="artPlay" class="btn play">▶︎ Listen</button>';
+    h += '<button id="artPlay" class="btn play">▶︎ Listen</button>';
+    h += '<div class="voicenote">' + esc(P.art && P.art.id === art.id ? P.note : '') + '</div>';
     h += '<div class="actions">';
     if (lat != null) h += '<a class="btn secondary" href="https://maps.apple.com/?daddr=' + lat + ',' + lon + '&dirflg=w">Directions</a>';
     h += '<a class="btn secondary" href="' + esc(art.url) + '" target="_blank" rel="noopener">Wikipedia</a></div>';
@@ -318,7 +403,7 @@
   /* ---------- Read-aloud ---------- */
   const synth = window.speechSynthesis;
   const RATES = [0.9, 1, 1.25];
-  const P = { art: null, segs: [], i: 0, playing: false, token: 0, rate: ls.get('rate', 1), timer: null };
+  const P = { art: null, segs: [], i: 0, playing: false, token: 0, rate: ls.get('rate', 1), timer: null, engine: 'synth', aiUnit: null, note: '' };
   let voices = [];
   function loadVoices() {
     if (!synth) return;
@@ -338,13 +423,126 @@
   $('voiceSel').onchange = (e) => ls.set('voice', e.target.value);
   const voice = () => W.pickVoice(voices, ls.get('voice', null));
 
+  /* --- AI voice (OpenAI) --- */
+  const AI_URL = 'https://api.openai.com/v1/audio/speech';
+  const AI_MODEL = 'gpt-4o-mini-tts';
+  const AI_INSTR = 'Speak as a warm, knowledgeable walking-tour guide reading aloud to a family. ' +
+    'Natural, unhurried pace with light expression. Pronounce French and other non-English names as a native speaker would.';
+  const aiKey = () => String(ls.get('aiKey', '') || '').trim();
+  const aiVoice = () => ls.get('aiVoice', 'coral');
+  const audioEl = new Audio();
+  audioEl.preload = 'auto';
+  audioEl.setAttribute('playsinline', '');
+  const inflight = {};
+  // A tiny silent WAV, played inside a tap so iOS lets this audio element play later without a tap.
+  const SILENT = (() => {
+    const n = 800, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+    const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true);
+    v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true);
+    for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+    let bin = ''; new Uint8Array(buf).forEach((b) => { bin += String.fromCharCode(b); });
+    return 'data:audio/wav;base64,' + btoa(bin);
+  })();
+  function unlockAudio() {
+    try { audioEl.src = SILENT; audioEl.play().catch(() => {}); } catch (e) { /* ignore */ }
+    if (synth) { try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; synth.speak(u); } catch (e) { /* ignore */ } }
+  }
+
+  async function aiFetch(text) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 30000);
+    try {
+      const r = await fetch(AI_URL, {
+        method: 'POST', signal: ctl.signal,
+        headers: { Authorization: 'Bearer ' + aiKey(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: AI_MODEL, voice: aiVoice(), input: text, instructions: AI_INSTR, response_format: 'mp3' }),
+      });
+      if (!r.ok) {
+        let msg = 'HTTP ' + r.status;
+        try { const j = await r.json(); if (j.error && j.error.message) msg = j.error.message; } catch (e) { /* ignore */ }
+        const err = new Error(msg); err.status = r.status; throw err;
+      }
+      return await r.blob();
+    } finally { clearTimeout(t); }
+  }
+
+  // A unit = consecutive segments of the same paragraph, up to ~1500 characters (one AI request).
+  function unitAt(i) {
+    const first = P.segs[i];
+    if (!first) return null;
+    let j = i, text = first.text;
+    while (j + 1 < P.segs.length && P.segs[j + 1].block === first.block && (text + ' ' + P.segs[j + 1].text).length <= 1500) {
+      j++; text += ' ' + P.segs[j].text;
+    }
+    return { start: i, end: j, text, key: P.art.id + '|' + aiVoice() + '|' + i + '|' + j };
+  }
+  function getAudio(u) {
+    if (inflight[u.key]) return inflight[u.key];
+    const pr = (async () => {
+      const hit = await db.get('audio', u.key);
+      if (hit) return hit;
+      const blob = await aiFetch(u.text);
+      db.put('audio', u.key, blob);
+      return blob;
+    })();
+    inflight[u.key] = pr;
+    pr.catch(() => {}).finally(() => { delete inflight[u.key]; });
+    return pr;
+  }
+
+  function aiFailed(e) {
+    P.engine = 'synth';
+    let msg = "Couldn't reach the AI voice, so the iPhone voice is reading instead.";
+    if (e && (e.status === 401 || e.status === 403)) msg = 'The OpenAI key was rejected. Check it in Settings. Using the iPhone voice for now.';
+    else if (e && e.status === 429) msg = 'The OpenAI account is out of credit or rate-limited. Using the iPhone voice for now.';
+    showVoiceNote(msg);
+  }
+  function showVoiceNote(msg) {
+    const el = document.querySelector('#articleBody .voicenote');
+    if (el) el.textContent = msg || '';
+    P.note = msg || '';
+  }
+
+  async function aiPlayCurrent() {
+    const tok = ++P.token;
+    const u = unitAt(P.i);
+    if (!u) { finished(); return; }
+    P.aiUnit = u;
+    highlight(P.segs[u.start].block, true);
+    let blob;
+    try { blob = await getAudio(u); }
+    catch (e) {
+      if (tok !== P.token || !P.playing) return;
+      aiFailed(e);
+      speakCurrent();
+      return;
+    }
+    if (tok !== P.token || !P.playing) return;
+    if (audioEl._url) URL.revokeObjectURL(audioEl._url);
+    audioEl._url = URL.createObjectURL(blob);
+    audioEl.src = audioEl._url;
+    audioEl.playbackRate = P.rate;
+    audioEl.onended = () => { if (tok !== P.token || !P.playing) return; P.i = u.end + 1; aiPlayCurrent(); };
+    audioEl.onerror = () => { if (tok !== P.token || !P.playing) return; P.i = u.end + 1; aiPlayCurrent(); };
+    try { await audioEl.play(); }
+    catch (e) { if (tok === P.token) { P.playing = false; syncPlayerUI(); } return; }
+    // Fetch the next two pieces while this one plays.
+    let n = u.end + 1;
+    for (let k = 0; k < 2; k++) { const nu = unitAt(n); if (!nu) break; getAudio(nu).catch(() => {}); n = nu.end + 1; }
+  }
+
+  /* --- Player (shared by both engines) --- */
   function loadPlayer(art, blocks) {
     stop(true);
     P.art = art;
     P.segs = [{ block: -1, text: art.title + '.' }].concat(W.speechSegments(blocks));
     P.i = 0;
+    P.aiUnit = null;
     $('player').classList.remove('hidden');
     $('plTitle').textContent = art.title;
+    setMediaSession();
   }
   function currentBlock() { const s = P.segs[P.i]; return s ? s.block : -1; }
 
@@ -372,43 +570,78 @@
     P.timer = setTimeout(check, est);
   }
 
-  function play() {
-    if (!P.art || !synth) return;
-    if (P.i >= P.segs.length) P.i = 0;
-    P.playing = true;
-    synth.cancel();
-    speakCurrent();
-    wakeOn();
-    syncPlayerUI();
-  }
-  function pause() {
-    P.playing = false;
+  function silence() {
     P.token++;
     clearTimeout(P.timer);
     if (synth) synth.cancel();
+    audioEl.pause();
+  }
+  // Start (or restart) output at P.i with the current engine.
+  function go() {
+    if (P.engine === 'ai') aiPlayCurrent();
+    else speakCurrent();
+  }
+
+  function play() {
+    if (!P.art) return;
+    if (P.i >= P.segs.length) P.i = 0;
+    // Resume an AI clip that was paused mid-way.
+    if (P.engine === 'ai' && P.aiUnit && P.aiUnit.start === P.i && audioEl.src && !audioEl.ended && audioEl.currentTime > 0) {
+      P.playing = true;
+      audioEl.play().catch(() => { P.playing = false; syncPlayerUI(); });
+      afterPlayStart();
+      return;
+    }
+    P.engine = aiKey() ? 'ai' : 'synth';
+    if (P.engine === 'synth' && !synth) return;
+    if (P.engine === 'ai') unlockAudio();
+    showVoiceNote('');
+    P.playing = true;
+    silence();
+    if (P.engine === 'ai') audioEl.src = SILENT; // keep the element unlocked
+    go();
+    afterPlayStart();
+  }
+  function afterPlayStart() {
+    wakeOn();
+    syncPlayerUI();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+  }
+  function pause() {
+    P.playing = false;
+    if (P.engine === 'ai') { P.token++; audioEl.pause(); if (synth) synth.cancel(); clearTimeout(P.timer); }
+    else silence();
     wakeOff();
     syncPlayerUI();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   }
   function stop(keepHidden) {
     pause();
     P.art = null;
     P.segs = [];
     P.i = 0;
+    P.aiUnit = null;
     clearHighlight();
     if (keepHidden !== true) $('player').classList.add('hidden');
+    if ('mediaSession' in navigator) navigator.mediaSession.metadata = null;
   }
   function finished() {
     P.playing = false;
     P.i = 0;
+    P.aiUnit = null;
     clearHighlight();
     wakeOff();
     syncPlayerUI();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+  }
+  function moveTo(idx) {
+    P.i = idx;
+    P.aiUnit = null;
+    if (P.playing) { silence(); go(); } else { silence(); highlight(currentBlock(), true); syncPlayerUI(); }
   }
   function jumpToBlock(block) {
     const idx = P.segs.findIndex((s) => s.block === block);
-    if (idx < 0) return;
-    P.i = idx;
-    if (P.playing) { P.token++; synth.cancel(); speakCurrent(); } else highlight(block, false);
+    if (idx >= 0) moveTo(idx);
   }
   function step(dir) {
     if (!P.art) return;
@@ -418,19 +651,33 @@
     else {
       // go to start of current paragraph, or previous one if already at its start
       const start = P.segs.findIndex((s) => s.block === cur);
-      const target = (P.i > start) ? cur : (P.segs.slice(0, start).reverse().find(() => true) || P.segs[0]).block;
+      const atStart = P.engine === 'ai' ? (P.aiUnit ? P.aiUnit.start === start && audioEl.currentTime < 2 : true) : P.i === start;
+      const target = atStart ? (P.segs.slice(0, start).reverse().find(() => true) || P.segs[0]).block : cur;
       idx = P.segs.findIndex((s) => s.block === target);
     }
-    if (idx < 0) return;
-    P.i = idx;
-    if (P.playing) { P.token++; synth.cancel(); speakCurrent(); } else highlight(currentBlock(), true);
+    if (idx >= 0) moveTo(idx);
   }
   function cycleRate() {
     const i = RATES.indexOf(P.rate);
     P.rate = RATES[(i + 1) % RATES.length];
     ls.set('rate', P.rate);
     syncPlayerUI();
-    if (P.playing) { P.token++; synth.cancel(); speakCurrent(); }
+    audioEl.playbackRate = P.rate;
+    if (P.playing && P.engine !== 'ai') { silence(); go(); }
+  }
+
+  function setMediaSession() {
+    if (!('mediaSession' in navigator) || !P.art) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: P.art.title, artist: 'Wiki Walk', album: 'Wikipedia',
+        artwork: [{ src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }],
+      });
+      navigator.mediaSession.setActionHandler('play', () => play());
+      navigator.mediaSession.setActionHandler('pause', () => pause());
+      navigator.mediaSession.setActionHandler('nexttrack', () => step(1));
+      navigator.mediaSession.setActionHandler('previoustrack', () => step(-1));
+    } catch (e) { /* ignore */ }
   }
 
   function clearHighlight() { document.querySelectorAll('.speaking').forEach((el) => el.classList.remove('speaking')); }
@@ -476,14 +723,18 @@
   }
   function wakeOff() { if (wl) { wl.release().catch(() => {}); wl = null; } }
   document.addEventListener('visibilitychange', () => {
-    // iOS stops speech when the app goes to the background or the screen locks; pause so Resume picks up here.
-    if (document.visibilityState === 'hidden' && P.playing) pause();
+    // iOS stops the iPhone voice when the app goes to the background or the screen locks; pause so Resume picks up here.
+    // The AI voice is regular audio, so it is left playing.
+    if (document.visibilityState === 'hidden' && P.playing && P.engine !== 'ai') pause();
+    if (document.visibilityState === 'visible' && P.playing) wakeOn();
   });
 
   /* ---------- Settings ---------- */
   $('settingsBtn').onclick = async () => {
     showSheet('settingsView');
     $('wakeChk').checked = ls.get('wake', true);
+    $('aiKey').value = aiKey();
+    $('aiVoiceSel').value = aiVoice();
     loadVoices();
     $('versionInfo').textContent = 'Version ' + VERSION + ('wakeLock' in navigator ? '' : ' · Keep-screen-on is not supported on this iOS version.');
     const info = $('storageInfo');
@@ -495,6 +746,33 @@
     } catch (e) { info.textContent = ''; }
   };
   $('wakeChk').onchange = (e) => ls.set('wake', e.target.checked);
+  $('aiKey').onchange = (e) => { ls.set('aiKey', e.target.value.trim()); $('aiStatus').textContent = e.target.value.trim() ? 'Key saved on this phone. Tap Test AI voice.' : 'No key: the iPhone voice will read.'; };
+  $('aiVoiceSel').onchange = (e) => ls.set('aiVoice', e.target.value);
+  $('testAiBtn').onclick = async () => {
+    const st = $('aiStatus');
+    const typed = $('aiKey').value.trim();
+    if (typed !== aiKey()) ls.set('aiKey', typed);
+    if (!aiKey()) { st.textContent = 'Paste your OpenAI key above first.'; return; }
+    if (P.playing) pause();
+    unlockAudio();
+    st.textContent = 'Testing…';
+    try {
+      const b = await aiFetch('Bonjour! This is your Wiki Walk guide. Our next stop is the Hospices de Beaune.');
+      if (audioEl._url) URL.revokeObjectURL(audioEl._url);
+      audioEl._url = URL.createObjectURL(b);
+      audioEl.src = audioEl._url;
+      audioEl.playbackRate = 1;
+      audioEl.onended = null; audioEl.onerror = null;
+      await audioEl.play();
+      st.textContent = 'Working. This voice reads articles when you have signal, and replays saved ones offline.';
+    } catch (e) {
+      st.textContent = (e.status === 401 || e.status === 403) ? 'That key was rejected. Check it was copied in full.'
+        : e.status === 429 ? 'This OpenAI account has no credit or hit a limit.'
+        : e.name === 'NotAllowedError' ? 'Audio was blocked. Tap Test AI voice again.'
+        : "Couldn't reach OpenAI (" + e.message + '). Check your connection.';
+    }
+  };
+  $('clearAudioBtn').onclick = async () => { await db.clear('audio'); $('aiStatus').textContent = 'Saved AI audio deleted.'; };
   $('testVoiceBtn').onclick = () => {
     if (!synth) return;
     synth.cancel();
@@ -515,7 +793,7 @@
   const rs = $('radiusSel');
   rs.value = String(S.radius);
   if (!rs.value) { rs.value = '805'; S.radius = 805; }
-  rs.onchange = () => { S.radius = +rs.value; ls.set('radius', S.radius); S.center = null; maybeRefresh(); render(); };
+  rs.onchange = () => { S.radius = +rs.value; ls.set('radius', S.radius); S.center = null; pinKey = ''; maybeRefresh(); render(); centerMap(); };
 
   /* Stop picker */
   $('placeSel').innerHTML = '<option value="">Choose a stop…</option>' +
