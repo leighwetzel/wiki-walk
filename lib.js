@@ -48,7 +48,7 @@
     return '±' + Math.max(5, Math.round((m * FT_PER_M) / 5) * 5) + ' ft';
   }
 
-  const SKIP_SECTIONS = /^(see also|references|external links|notes|further reading|bibliography|sources|citations|footnotes|notes and references|references and notes|gallery|works cited|literature)$/i;
+  const SKIP_SECTIONS = /^(see also|references|external links|notes|further reading|bibliography|sources|citations|footnotes|notes and references|references and notes|gallery|works cited|literature|voir aussi|notes et références|références|liens externes|bibliographie|articles connexes|annexes|sources et bibliographie|galerie|lien externe)$/i;
 
   /**
    * Parse a TextExtracts plain-text extract (exsectionformat=wiki) into blocks.

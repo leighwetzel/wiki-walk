@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.1.2';
+  const VERSION = '1.2.0';
   const W = window.WW;
   const $ = (id) => document.getElementById(id);
   const API = 'https://en.wikipedia.org/w/api.php';
@@ -52,8 +52,9 @@
     seen: {}, fromCache: false, current: null,
   };
 
-  async function fetchJSON(params) {
-    const url = API + '?' + new URLSearchParams(params).toString();
+  async function fetchJSON(params, lang) {
+    const api = 'https://' + (lang || 'en') + '.wikipedia.org/w/api.php';
+    const url = api + '?' + new URLSearchParams(params).toString();
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 15000);
     try {
@@ -63,38 +64,122 @@
     } finally { clearTimeout(t); }
   }
 
-  async function fetchNearby(lat, lon, radius) {
-    const r = await fetchJSON({
+  const frEnabled = () => ls.get('fr', true);
+
+  // English items keep the numeric page id as their key (so earlier saved data still matches).
+  // French-only items are keyed "fr:<pageid>". French pages that have an English twin become
+  // English items keyed "ent:<English title>" (deduplicated against English results by title).
+  async function fetchNearby(lat, lon, radius, lang) {
+    const params = {
       action: 'query', format: 'json', formatversion: '2', origin: '*',
       generator: 'geosearch', ggscoord: lat + '|' + lon,
       ggsradius: String(Math.min(10000, Math.round(radius))), ggslimit: '50', ggsnamespace: '0',
       prop: 'coordinates|description|pageimages', colimit: 'max',
       piprop: 'thumbnail', pithumbsize: '160', pilimit: 'max',
-    });
+    };
+    if (lang === 'fr') { params.prop += '|langlinks'; params.lllang = 'en'; params.lllimit = 'max'; }
+    const r = await fetchJSON(params, lang);
     const pages = (r.query && r.query.pages) || [];
-    return pages.filter((p) => p.coordinates && p.coordinates[0]).map((p) => ({
-      id: p.pageid, title: p.title, desc: p.description || '',
-      lat: p.coordinates[0].lat, lon: p.coordinates[0].lon,
-      thumb: (p.thumbnail && p.thumbnail.source) || null,
-    }));
+    return pages.filter((p) => p.coordinates && p.coordinates[0]).map((p) => {
+      const base = { lat: p.coordinates[0].lat, lon: p.coordinates[0].lon, thumb: (p.thumbnail && p.thumbnail.source) || null };
+      if (lang !== 'fr') return { ...base, id: p.pageid, lang: 'en', title: p.title, desc: p.description || '' };
+      const en = p.langlinks && p.langlinks[0] && (p.langlinks[0].title || p.langlinks[0]['*']);
+      if (en) return { ...base, id: 'ent:' + en, lang: 'en', title: en, desc: '' };
+      return { ...base, id: 'fr:' + p.pageid, lang: 'fr', pageid: p.pageid, title: p.title, desc: p.description || '' };
+    });
   }
 
-  async function fetchArticle(pageid) {
-    const r = await fetchJSON({
-      action: 'query', format: 'json', formatversion: '2', origin: '*',
-      pageids: String(pageid), prop: 'extracts|pageimages|description|coordinates|info',
+  async function fetchArticle(item) {
+    const lang = item.lang || 'en';
+    const params = {
+      action: 'query', format: 'json', formatversion: '2', origin: '*', redirects: '1',
+      prop: 'extracts|pageimages|description|coordinates|info',
       explaintext: '1', exsectionformat: 'wiki', piprop: 'thumbnail', pithumbsize: '800', inprop: 'url',
-    });
+    };
+    if (typeof item.id === 'number') params.pageids = String(item.id);
+    else if (item.pageid) params.pageids = String(item.pageid);
+    else params.titles = item.title;
+    const r = await fetchJSON(params, lang);
     const p = r.query && r.query.pages && r.query.pages[0];
     if (!p || p.missing) throw new Error('missing');
     return {
-      id: p.pageid, title: p.title, desc: p.description || '', extract: p.extract || '',
+      id: item.id, pageid: p.pageid, lang, title: p.title, desc: p.description || '', extract: p.extract || '',
       image: (p.thumbnail && p.thumbnail.source) || null,
-      url: p.fullurl || ('https://en.wikipedia.org/?curid=' + p.pageid),
+      url: p.fullurl || ('https://' + lang + '.wikipedia.org/?curid=' + p.pageid),
       lat: p.coordinates && p.coordinates[0] ? p.coordinates[0].lat : null,
       lon: p.coordinates && p.coordinates[0] ? p.coordinates[0].lon : null,
       saved: Date.now(),
     };
+  }
+
+  /* --- Translation of French-only articles (OpenAI) --- */
+  const TR_MODELS = ['gpt-5-mini', 'gpt-4.1-mini', 'gpt-4o-mini'];
+  const TR_PROMPT = 'Translate this French Wikipedia text into clear, natural English for travelers. ' +
+    'Keep every line break. Lines that look like "== Heading ==" (any number of = signs) are section headings: ' +
+    'translate the words and keep the = signs exactly. The first line starts with "# ": that is the title; keep the "# ". ' +
+    'Keep proper names of places in French. Output only the translation.';
+  async function chatTranslate(text) {
+    const saved = ls.get('trModel', null);
+    const models = saved ? [saved].concat(TR_MODELS.filter((m) => m !== saved)) : TR_MODELS;
+    let lastErr;
+    for (const model of models) {
+      const body = { model, messages: [{ role: 'system', content: TR_PROMPT }, { role: 'user', content: text }] };
+      if (model.startsWith('gpt-5')) body.reasoning_effort = 'minimal';
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 90000);
+      try {
+        const r = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST', signal: ctl.signal,
+          headers: { Authorization: 'Bearer ' + aiKey(), 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (r.ok) {
+          const j = await r.json();
+          ls.set('trModel', model);
+          return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+        }
+        let msg = 'HTTP ' + r.status;
+        try { const j = await r.json(); if (j.error && j.error.message) msg = j.error.message; } catch (e) { /* ignore */ }
+        const err = new Error(msg); err.status = r.status;
+        if (r.status === 401 || r.status === 403 || r.status === 429) throw err;
+        lastErr = err; // model not available etc.: try the next model
+      } finally { clearTimeout(t); }
+    }
+    throw lastErr || new Error('No translation model available');
+  }
+  function blocksToText(blocks) {
+    return blocks.map((b) => (b.type === 'h' ? '='.repeat(b.level) + ' ' + b.text + ' ' + '='.repeat(b.level) : b.text)).join('\n');
+  }
+  async function translateArticle(art, onProgress) {
+    const blocks = W.parseExtract(art.extract);
+    // Chunk by paragraphs (~5000 characters) and translate up to 4 chunks at a time.
+    const chunks = [];
+    let cur = [];
+    let len = 0;
+    for (const b of blocks) {
+      const t = blocksToText([b]);
+      if (cur.length && len + t.length > 5000) { chunks.push(cur); cur = []; len = 0; }
+      cur.push(b); len += t.length + 1;
+    }
+    if (cur.length || !chunks.length) chunks.push(cur);
+    const out = new Array(chunks.length);
+    let done = 0;
+    let next = 0;
+    async function worker() {
+      while (next < chunks.length) {
+        const i = next++;
+        const text = (i === 0 ? '# ' + art.title + '\n' : '') + blocksToText(chunks[i]);
+        out[i] = await chatTranslate(text);
+        done++;
+        if (onProgress) onProgress(done, chunks.length);
+      }
+    }
+    await Promise.all([worker(), worker(), worker(), worker()].slice(0, Math.min(4, chunks.length)));
+    let all = out.join('\n');
+    let title = art.title;
+    const m = all.match(/^\s*#\s*(.+)\n?/);
+    if (m) { title = m[1].trim(); all = all.slice(m[0].length); }
+    return { title, extract: all, at: Date.now() };
   }
 
   /* ---------- Location ---------- */
@@ -173,15 +258,16 @@
     const at = { ...S.pos };
     S.center = at;
     if (!Object.keys(S.seen).length) render();
-    try {
-      const fresh = await fetchNearby(at.lat, at.lon, S.radius);
-      for (const p of fresh) S.seen[p.id] = p;
-      trimSeen();
-      db.put('kv', 'seen', S.seen);
-      S.fromCache = false;
-    } catch (e) {
-      S.fromCache = true; // offline or API trouble: use what's saved
+    const langs = frEnabled() ? ['en', 'fr'] : ['en'];
+    const results = await Promise.allSettled(langs.map((l) => fetchNearby(at.lat, at.lon, S.radius, l)));
+    let ok = false;
+    for (const r of results) {
+      if (r.status !== 'fulfilled') continue;
+      ok = true;
+      for (const p of r.value) S.seen[p.id] = p;
     }
+    if (ok) { trimSeen(); db.put('kv', 'seen', S.seen); }
+    S.fromCache = !ok; // offline or API trouble: use what's saved
     S.loading = false;
     updateNet();
     render();
@@ -196,7 +282,16 @@
 
   function currentItems() {
     if (!S.pos) return [];
-    return Object.values(S.seen).map((p) => ({
+    const fr = frEnabled();
+    const byTitle = new Map();
+    for (const p of Object.values(S.seen)) {
+      if (p.lang === 'fr') { if (fr) byTitle.set('fr|' + p.id, p); continue; }
+      const k = 'en|' + String(p.title).toLowerCase();
+      const prev = byTitle.get(k);
+      // Prefer the English result with a real page id over one found through French Wikipedia.
+      if (!prev || (typeof prev.id !== 'number' && typeof p.id === 'number')) byTitle.set(k, p);
+    }
+    return [...byTitle.values()].map((p) => ({
       ...p,
       d: W.distanceM(S.pos.lat, S.pos.lon, p.lat, p.lon),
       b: W.bearingDeg(S.pos.lat, S.pos.lon, p.lat, p.lon),
@@ -216,7 +311,7 @@
       if (S.read.has(p.id)) li.classList.add('read');
       li.innerHTML =
         (p.thumb ? '<img class="thumb" loading="lazy" alt="" src="' + esc(p.thumb) + '">' : '<div class="thumb empty">◎</div>') +
-        '<div class="li-main"><div class="li-title">' + esc(p.title) + '</div>' +
+        '<div class="li-main"><div class="li-title">' + (p.lang === 'fr' ? '<span class="frtag">FR</span>' : '') + esc(p.title) + '</div>' +
         (p.desc ? '<div class="li-desc">' + esc(p.desc) + '</div>' : '') +
         (S.read.has(p.id) ? '<div class="check">✓ read</div>' : '') + '</div>' +
         '<div class="li-dist">' + W.formatDist(p.d) + '<small>' + W.compass(p.b) + '</small></div>';
@@ -324,8 +419,9 @@
     $('settingsView').classList.add('hidden');
     delete document.body.dataset.sheet;
     S.current = null;
+    S.curKey = null;
     if (map) setTimeout(() => map.invalidateSize(), 50);
-    if (S.pos) render();
+    if (S.pos) maybeRefresh();
   }
   window.addEventListener('popstate', closeSheets);
   $('backBtn').onclick = () => history.back();
@@ -339,6 +435,7 @@
 
   async function openArticle(place) {
     S.current = place;
+    S.curKey = null;
     showSheet('articleView');
     $('articleView').scrollTop = 0;
     const body = $('articleBody');
@@ -347,7 +444,7 @@
     let art = await db.get('articles', place.id);
     if (!art) {
       try {
-        art = await fetchArticle(place.id);
+        art = await fetchArticle(place);
         db.put('articles', place.id, art);
       } catch (e) {
         if (S.current !== place) return;
@@ -357,11 +454,31 @@
       }
     }
     if (S.current !== place) return;
+    if (art.lang === 'fr' && !art.tr && aiKey() && navigator.onLine) { translateAndShow(art, place); return; }
     renderArticle(art, place);
   }
 
+  async function translateAndShow(art, place) {
+    const body = $('articleBody');
+    body.innerHTML = '<h2>' + esc(art.title) + '</h2><p class="muted" id="trProg">Translating from French…</p>';
+    try {
+      art.tr = await translateArticle(art, (d, n) => { const el = $('trProg'); if (el && n > 1) el.textContent = 'Translating from French… ' + d + ' of ' + n; });
+      db.put('articles', art.id, art);
+    } catch (e) {
+      art.trError = (e && (e.status === 401 || e.status === 403)) ? 'The OpenAI key was rejected for translation.'
+        : (e && e.status === 429) ? 'The OpenAI account is out of credit or rate-limited.'
+        : "Couldn't translate right now.";
+    }
+    if (S.current === place) renderArticle(art, place);
+  }
+
   function renderArticle(art, place) {
-    const blocks = W.parseExtract(art.extract);
+    const tr = art.lang === 'fr' ? art.tr : null;
+    const shownTitle = tr ? tr.title : art.title;
+    const key = art.id + (tr ? ':tr' : '');
+    const speakLang = art.lang === 'fr' && !tr ? 'fr' : 'en';
+    const blocks = W.parseExtract(tr ? tr.extract : art.extract);
+    S.curKey = key;
     if (!blocks.length && art.desc) blocks.push({ type: 'p', text: art.desc });
     const lat = art.lat != null ? art.lat : place.lat;
     const lon = art.lon != null ? art.lon : place.lon;
@@ -370,11 +487,18 @@
       const d = W.distanceM(S.pos.lat, S.pos.lon, lat, lon);
       meta = W.formatDist(d) + ' ' + W.compass(W.bearingDeg(S.pos.lat, S.pos.lon, lat, lon));
     }
-    if (art.desc) meta += (meta ? ' · ' : '') + art.desc;
-    let h = '<h2>' + esc(art.title) + '</h2>';
+    if (art.desc && !tr) meta += (meta ? ' · ' : '') + art.desc;
+    let h = '<h2>' + esc(shownTitle) + '</h2>';
     if (meta) h += '<div class="meta">' + esc(meta) + '</div>';
+    if (art.lang === 'fr') {
+      if (tr) h += '<div class="trnote">Translated from French Wikipedia by AI' + (shownTitle !== art.title ? ' (“' + esc(art.title) + '”)' : '') + '.</div>';
+      else {
+        h += '<div class="trnote">French Wikipedia article. ' + esc(art.trError || (aiKey() ? 'Not translated yet.' : 'Add an OpenAI key in Settings to translate it.')) + '</div>';
+        if (aiKey()) h += '<button id="trBtn" class="btn secondary trbtn">Translate to English</button>';
+      }
+    }
     h += '<button id="artPlay" class="btn play">▶︎ Listen</button>';
-    h += '<div class="voicenote">' + esc(P.art && P.art.id === art.id ? P.note : '') + '</div>';
+    h += '<div class="voicenote">' + esc(P.art && P.art.key === key ? P.note : '') + '</div>';
     h += '<div class="actions">';
     if (lat != null) h += '<a class="btn secondary" href="https://maps.apple.com/?daddr=' + lat + ',' + lon + '&dirflg=w">Directions</a>';
     h += '<a class="btn secondary" href="' + esc(art.url) + '" target="_blank" rel="noopener">Wikipedia</a></div>';
@@ -383,23 +507,28 @@
       if (b.type === 'h') { const tag = b.level <= 2 ? 'h3' : 'h4'; h += '<' + tag + ' data-block="' + i + '">' + esc(b.text) + '</' + tag + '>'; }
       else h += '<p data-block="' + i + '">' + esc(b.text) + '</p>';
     });
-    h += '<p class="attrib">Text from the Wikipedia article “<a href="' + esc(art.url) + '" target="_blank" rel="noopener">' + esc(art.title) +
+    h += '<p class="attrib">' + (tr ? 'AI translation of' : 'Text from') + ' the ' + (art.lang === 'fr' ? 'French ' : '') + 'Wikipedia article “<a href="' + esc(art.url) + '" target="_blank" rel="noopener">' + esc(art.title) +
       '</a>,” available under <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>.</p>';
     const body = $('articleBody');
     body.innerHTML = h;
     const playBtn = $('artPlay');
     if (playBtn) playBtn.onclick = () => {
-      if (P.art && P.art.id === art.id) { P.playing ? pause() : play(); }
-      else { loadPlayer(art, blocks); play(); }
+      if (P.art && P.art.key === key) { P.playing ? pause() : play(); }
+      else {
+        loadPlayer({ id: art.id, key, title: shownTitle, lang: speakLang, desc: art.desc, lat: art.lat, lon: art.lon, pageid: art.pageid, itemLang: art.lang }, blocks);
+        play();
+      }
     };
+    const trBtn = $('trBtn');
+    if (trBtn) trBtn.onclick = () => { delete art.trError; translateAndShow(art, place); };
     body.querySelectorAll('[data-block]').forEach((el) => {
       el.addEventListener('click', () => {
-        if (!P.art || P.art.id !== art.id) return;
+        if (!P.art || P.art.key !== key) return;
         jumpToBlock(+el.dataset.block);
       });
     });
     syncPlayerUI();
-    if (P.art && P.art.id === art.id) highlight(currentBlock(), false);
+    if (P.art && P.art.key === key) highlight(currentBlock(), false);
   }
 
   /* ---------- Read-aloud ---------- */
@@ -424,6 +553,12 @@
   }
   $('voiceSel').onchange = (e) => ls.set('voice', e.target.value);
   const voice = () => W.pickVoice(voices, ls.get('voice', null));
+  const frVoice = () => {
+    const fr = voices.filter((v) => /^fr[-_]FR/i.test(v.lang));
+    const pool = fr.length ? fr : voices.filter((v) => /^fr/i.test(v.lang));
+    const score = (v) => (/premium/i.test(v.name) ? 3 : 0) + (/enhanced/i.test(v.name) ? 2 : 0) + (v.localService ? 0.5 : 0);
+    return pool.slice().sort((a, b) => score(b) - score(a))[0] || null;
+  };
 
   /* --- AI voice (OpenAI) --- */
   const AI_URL = 'https://api.openai.com/v1/audio/speech';
@@ -478,7 +613,7 @@
     while (j + 1 < P.segs.length && P.segs[j + 1].block === first.block && (text + ' ' + P.segs[j + 1].text).length <= 1500) {
       j++; text += ' ' + P.segs[j].text;
     }
-    return { start: i, end: j, text, key: P.art.id + '|' + aiVoice() + '|' + i + '|' + j };
+    return { start: i, end: j, text, key: P.art.key + '|' + aiVoice() + '|' + i + '|' + j };
   }
   function getAudio(u) {
     if (inflight[u.key]) return inflight[u.key];
@@ -554,8 +689,8 @@
     if (!seg) { finished(); return; }
     const tok = ++P.token;
     const u = new SpeechSynthesisUtterance(seg.text);
-    const v = voice();
-    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-US';
+    const v = P.art && P.art.lang === 'fr' ? frVoice() : voice();
+    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = P.art && P.art.lang === 'fr' ? 'fr-FR' : 'en-US';
     u.rate = P.rate;
     const advance = () => { if (tok !== P.token || !P.playing) return; P.i++; speakCurrent(); };
     u.onend = advance;
@@ -685,7 +820,7 @@
   function clearHighlight() { document.querySelectorAll('.speaking').forEach((el) => el.classList.remove('speaking')); }
   function highlight(block, scroll) {
     clearHighlight();
-    if (!S.current || !P.art || S.current.id !== P.art.id || block < 0) return;
+    if (!S.current || !P.art || S.curKey !== P.art.key || block < 0) return;
     const el = document.querySelector('#articleBody [data-block="' + block + '"]');
     if (!el) return;
     el.classList.add('speaking');
@@ -701,7 +836,7 @@
     $('plRate').textContent = P.rate + '×';
     const ap = $('artPlay');
     if (ap && S.current) {
-      const same = P.art && P.art.id === S.current.id;
+      const same = P.art && P.art.key === S.curKey;
       ap.textContent = same && P.playing ? '❚❚ Pause' : same && P.i > 0 ? '▶︎ Resume' : '▶︎ Listen';
     }
   }
@@ -714,7 +849,7 @@
   $('plTitle').onclick = () => {
     if (!P.art) return;
     if (S.current && S.current.id === P.art.id) return;
-    openArticle({ id: P.art.id, title: P.art.title, desc: P.art.desc, lat: P.art.lat, lon: P.art.lon });
+    openArticle({ id: P.art.id, lang: P.art.itemLang || 'en', pageid: P.art.pageid, title: P.art.title, desc: P.art.desc, lat: P.art.lat, lon: P.art.lon });
   };
 
   /* Screen wake lock */
@@ -735,6 +870,7 @@
   $('settingsBtn').onclick = async () => {
     showSheet('settingsView');
     $('wakeChk').checked = ls.get('wake', true);
+    $('frChk').checked = frEnabled();
     $('aiKey').value = aiKey();
     $('aiVoiceSel').value = aiVoice();
     loadVoices();
@@ -748,6 +884,7 @@
     } catch (e) { info.textContent = ''; }
   };
   $('wakeChk').onchange = (e) => ls.set('wake', e.target.checked);
+  $('frChk').onchange = (e) => { ls.set('fr', e.target.checked); S.center = null; pinKey = ''; render(); };
   $('aiKey').onchange = (e) => { ls.set('aiKey', e.target.value.trim()); $('aiStatus').textContent = e.target.value.trim() ? 'Key saved on this phone. Tap Test AI voice.' : 'No key: the iPhone voice will read.'; };
   $('aiVoiceSel').onchange = (e) => ls.set('aiVoice', e.target.value);
   $('testAiBtn').onclick = async () => {

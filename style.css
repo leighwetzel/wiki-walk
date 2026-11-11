@@ -172,3 +172,7 @@ a { color: var(--green-2); }
 /* While an article or settings is open, the list/map underneath is hidden; settings also hides the player. */
 body[data-sheet] #listView, body[data-sheet] .topbar, body[data-sheet] .banner { visibility: hidden; }
 body[data-sheet="settingsView"] #player { display: none; }
+
+.frtag { display: inline-block; font-size: 11px; font-weight: 700; color: var(--chip-fg); background: var(--chip-bg); border-radius: 5px; padding: 1px 5px; margin-right: 6px; vertical-align: 2px; }
+.trnote { font-size: 14px; color: var(--muted); margin: 2px 0 6px; }
+.trbtn { width: 100%; margin: 4px 0 6px; }

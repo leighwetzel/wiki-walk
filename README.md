@@ -13,6 +13,7 @@ Live at https://walk.xoleigh.com
 - Articles you open and places you've seen are saved on the phone and work offline
 - "Browse from a stop" fallback when GPS isn't available
 - Map view (OpenStreetMap) with pins; tiles you've viewed are kept for offline
+- French Wikipedia: French-only places tagged FR and translated to English by AI when opened (cached for offline)
 - AI voice (OpenAI gpt-4o-mini-tts) when an API key is entered in Settings; audio is saved for offline replay. Falls back to the iPhone voice.
 
 ## Next
