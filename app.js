@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.1.0';
+  const VERSION = '1.1.1';
   const W = window.WW;
   const $ = (id) => document.getElementById(id);
   const API = 'https://en.wikipedia.org/w/api.php';

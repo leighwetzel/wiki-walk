@@ -1,27 +1,36 @@
 :root {
-  --brand: #1f4d3a;      /* header, player, primary buttons */
-  --accent: #2f6b52;     /* links, pins, checkmarks */
+  --brand: #1E4E6B;      /* river blue: buttons, player */
+  --accent: #1E5F86;     /* links, pins, checkmarks */
+  --header-bg: #FFFFFF;
+  --header-fg: #1c1c1a;
+  --chip-bg: #E3EDF4;
+  --chip-fg: #1E4E6B;
   --on-accent-btn: #fff;
   --green: var(--brand);
   --green-2: var(--accent);
-  --bg: #f6f5f1;
+  --bg: #F7F6F3;
   --card: #ffffff;
   --text: #1c1c1a;
-  --muted: #6b6a64;
-  --line: #e4e2db;
-  --hl: #fff3c4;
+  --muted: #6e6c66;
+  --line: #E6E3DC;
+  --hl: #E3EDF4;
   --fs: 19px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #121412;
-    --card: #1c1f1d;
+    --bg: #121314;
+    --card: #1c1e20;
     --text: #ecebe6;
     --muted: #9c9a92;
-    --line: #2c302d;
-    --hl: #3d3a22;
+    --line: #2c2f33;
+    --hl: #1d3445;
+    --accent: #7FB3D5;
+    --header-bg: #1c1e20;
+    --header-fg: #ecebe6;
+    --chip-bg: #1d3445;
+    --chip-fg: #B5D4EA;
   }
 }
 * { box-sizing: border-box; }
@@ -42,15 +51,15 @@ a { color: var(--green-2); }
   position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; gap: 10px;
   padding: calc(var(--safe-t) + 10px) 16px 10px;
-  background: var(--green); color: #fff;
+  background: var(--header-bg); color: var(--header-fg); border-bottom: 1px solid var(--line);
 }
-.topbar h1 { font-size: 20px; margin: 0; flex: 1; }
-.topbar .iconbtn { color: #fff; font-size: 22px; }
+.topbar h1 { font-size: 20px; margin: 0; flex: 1; letter-spacing: -0.01em; }
+.topbar .iconbtn { color: var(--header-fg); font-size: 22px; }
 .chip {
-  font-size: 13px; padding: 3px 9px; border-radius: 99px;
-  background: rgba(255,255,255,.18);
+  font-size: 13px; font-weight: 600; padding: 3px 9px; border-radius: 99px;
+  background: var(--chip-bg); color: var(--chip-fg);
 }
-.chip.off { background: #b5542f; }
+.chip.off { background: #F6E1D6; color: #8A3B16; }
 
 .iconbtn {
   background: none; border: 0; padding: 8px 10px; min-width: 44px; min-height: 44px;
