@@ -1,6 +1,7 @@
 /* Pure helpers (no DOM). Loaded in the browser as a script; also testable in Node. */
 (function (root) {
   const STOPS = [
+    { id: 'arles', name: 'Arles', lat: 43.6767, lon: 4.6278 },
     { id: 'avignon', name: 'Avignon', lat: 43.9493, lon: 4.8055 },
     { id: 'viviers', name: 'Viviers', lat: 44.4823, lon: 4.6889 },
     { id: 'tain', name: "Tain-l'Hermitage / Tournon", lat: 45.0700, lon: 4.8400 },

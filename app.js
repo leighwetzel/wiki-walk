@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.2.0';
+  const VERSION = '1.2.1';
   const W = window.WW;
   const $ = (id) => document.getElementById(id);
   const API = 'https://en.wikipedia.org/w/api.php';
@@ -189,7 +189,8 @@
     $('placePicker').classList.add('hidden');
     if (!('geolocation' in navigator)) { showPicker('This device has no location service. Browse from a stop instead:'); return; }
     if (watchId != null) navigator.geolocation.clearWatch(watchId);
-    $('locStatus').textContent = 'Finding your location…';
+    $('locStatus').innerHTML = 'Finding your location… · <button class="linkbtn" id="pickStopNow">Pick a stop</button>';
+    $('pickStopNow').onclick = () => showPicker('Browse from a stop until GPS is available:');
     watchId = navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
   }
   function onPos(p) {
