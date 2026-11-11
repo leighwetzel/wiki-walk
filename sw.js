@@ -1,5 +1,5 @@
 /* App-shell cache. Wikipedia data is stored by the app in IndexedDB, not here. */
-const CACHE = 'wikiwalk-v1.2.1';
+const CACHE = 'wikiwalk-v1.2.2';
 const TILES = 'wikiwalk-tiles';
 const MAX_TILES = 1500;
 const SHELL = [
@@ -17,7 +17,8 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
+  // cache: 'reload' skips the browser's HTTP cache so a new version never installs stale files.
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))));
 });
 
 self.addEventListener('activate', (e) => {
@@ -53,14 +54,18 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method === 'GET' && url.hostname === 'tile.openstreetmap.org') { e.respondWith(tileFetch(e.request)); return; }
   if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
-  // Cache-first for the app shell; navigation falls back to the cached index page.
-  e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then((hit) => {
-      if (hit) return hit;
-      return fetch(e.request).catch(() => {
-        if (e.request.mode === 'navigate') return caches.match('index.html');
-        return Response.error();
-      });
-    })
-  );
+  // App files: try the network first (so updates show up right away), fall back to the saved copy
+  // after 3 seconds or when offline.
+  e.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    const cached = await cache.match(e.request, { ignoreSearch: true }) ||
+      (e.request.mode === 'navigate' ? await cache.match('index.html') : undefined);
+    const net = fetch(e.request, { cache: 'no-cache' }).then((res) => {
+      if (res.ok && res.type === 'basic') cache.put(e.request, res.clone());
+      return res;
+    });
+    if (!cached) return net.catch(() => Response.error());
+    const timeout = new Promise((r) => setTimeout(() => r(cached), 3000));
+    return Promise.race([net.catch(() => cached), timeout]);
+  })());
 });
