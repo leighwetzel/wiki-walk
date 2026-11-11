@@ -111,7 +111,7 @@ a { color: var(--green-2); }
 .check { color: var(--green-2); font-size: 13px; }
 
 .sheet {
-  position: fixed; inset: 0; z-index: 10; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  position: fixed; inset: 0; z-index: 1000; overflow-y: auto; -webkit-overflow-scrolling: touch;
   background: var(--bg);
   padding-bottom: calc(var(--safe-b) + 110px);
 }
@@ -137,7 +137,7 @@ a { color: var(--green-2); }
 .field.row input { width: 22px; height: 22px; }
 
 .player {
-  position: fixed; left: 8px; right: 8px; bottom: calc(var(--safe-b) + 8px); z-index: 20;
+  position: fixed; left: 8px; right: 8px; bottom: calc(var(--safe-b) + 8px); z-index: 1100;
   background: var(--green); color: #fff; border-radius: 16px; padding: 6px 8px 4px;
   box-shadow: 0 6px 24px rgba(0,0,0,.25);
 }
@@ -154,7 +154,7 @@ a { color: var(--green-2); }
 .seg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
 
 /* Map */
-.mapwrap { position: relative; margin: 0 12px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line);
+.mapwrap { position: relative; z-index: 0; isolation: isolate; margin: 0 12px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line);
   height: calc(100vh - 230px - var(--safe-t) - var(--safe-b)); min-height: 320px; }
 #map { position: absolute; inset: 0; background: #e8e6df; }
 .mapbtn { position: absolute; right: 10px; bottom: 10px; z-index: 500; width: 46px; height: 46px; border-radius: 12px;
@@ -168,3 +168,7 @@ a { color: var(--green-2); }
 .popbtn { border: 0; background: var(--brand); color: #fff; border-radius: 8px; padding: 7px 12px; font-weight: 600; }
 .voicenote { font-size: 13px; color: var(--muted); margin: -2px 0 10px; }
 #settingsView .btn { display: block; width: 100%; margin: 8px 0; }
+
+/* While an article or settings is open, the list/map underneath is hidden; settings also hides the player. */
+body[data-sheet] #listView, body[data-sheet] .topbar, body[data-sheet] .banner { visibility: hidden; }
+body[data-sheet="settingsView"] #player { display: none; }

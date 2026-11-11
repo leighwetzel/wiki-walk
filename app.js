@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.1.1';
+  const VERSION = '1.1.2';
   const W = window.WW;
   const $ = (id) => document.getElementById(id);
   const API = 'https://en.wikipedia.org/w/api.php';
@@ -317,12 +317,14 @@
   /* ---------- Article view ---------- */
   function showSheet(id) {
     ['articleView', 'settingsView'].forEach((s) => $(s).classList.toggle('hidden', s !== id));
-    if (id) history.pushState({ sheet: id }, '');
+    if (id) { document.body.dataset.sheet = id; history.pushState({ sheet: id }, ''); }
   }
   function closeSheets() {
     $('articleView').classList.add('hidden');
     $('settingsView').classList.add('hidden');
+    delete document.body.dataset.sheet;
     S.current = null;
+    if (map) setTimeout(() => map.invalidateSize(), 50);
     if (S.pos) render();
   }
   window.addEventListener('popstate', closeSheets);
