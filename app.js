@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.2.3';
+  const VERSION = '1.2.4';
   const W = window.WW;
   const $ = (id) => document.getElementById(id);
   const API = 'https://en.wikipedia.org/w/api.php';
@@ -73,7 +73,7 @@
     const params = {
       action: 'query', format: 'json', formatversion: '2', origin: '*',
       generator: 'geosearch', ggscoord: lat + '|' + lon,
-      ggsradius: String(Math.min(10000, Math.round(radius))), ggslimit: '50', ggsnamespace: '0',
+      ggsradius: String(Math.min(10000, Math.round(radius))), ggslimit: '300', ggsnamespace: '0',
       prop: 'coordinates|description|pageimages', colimit: 'max',
       piprop: 'thumbnail', pithumbsize: '160', pilimit: 'max',
     };
