@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f4d3a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Wiki Walk">
+  <title>Wiki Walk</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Wiki Walk</h1>
+    <span id="netChip" class="chip">Live</span>
+    <button id="settingsBtn" class="iconbtn" aria-label="Settings">⚙︎</button>
+  </header>
+
+  <div id="installHint" class="banner hidden">
+    To install: tap <b>Share</b> <span aria-hidden="true">⎋</span> then <b>Add to Home Screen</b>.
+    <button class="linkbtn" data-dismiss="installHint">Got it</button>
+  </div>
+  <div id="updateBanner" class="banner hidden">
+    A new version is ready. <button class="linkbtn" id="updateBtn">Refresh</button>
+  </div>
+
+  <main id="listView">
+    <section class="locbar">
+      <div id="locStatus" class="muted">Finding your location…</div>
+      <div class="radius">
+        <label for="radiusSel">Within</label>
+        <select id="radiusSel">
+          <option value="402">0.25 mi</option>
+          <option value="805">0.5 mi</option>
+          <option value="1609">1 mi</option>
+          <option value="3219">2 mi</option>
+        </select>
+      </div>
+    </section>
+    <section id="placePicker" class="hidden card">
+      <p id="placeMsg">Location isn't available. Browse from a stop instead:</p>
+      <select id="placeSel"></select>
+      <button id="useGpsBtn" class="btn secondary">Try GPS again</button>
+    </section>
+    <ul id="list" class="list"></ul>
+    <p id="listEmpty" class="muted center hidden"></p>
+  </main>
+
+  <article id="articleView" class="sheet hidden" aria-live="polite">
+    <div class="sheetbar">
+      <button id="backBtn" class="iconbtn" aria-label="Back">‹ Back</button>
+      <div class="spacer"></div>
+      <button id="textSmaller" class="iconbtn" aria-label="Smaller text">A−</button>
+      <button id="textLarger" class="iconbtn" aria-label="Larger text">A+</button>
+    </div>
+    <div id="articleBody" class="articlebody"></div>
+  </article>
+
+  <section id="settingsView" class="sheet hidden">
+    <div class="sheetbar">
+      <button id="settingsBack" class="iconbtn">‹ Back</button>
+      <div class="spacer"></div>
+    </div>
+    <div class="articlebody">
+      <h2>Settings</h2>
+      <label class="field">Voice
+        <select id="voiceSel"></select>
+      </label>
+      <p class="muted small">Better voices: iPhone Settings → Accessibility → Spoken Content → Voices → English. Download an "Enhanced" or "Premium" voice, then reopen this app.</p>
+      <label class="field row"><input type="checkbox" id="wakeChk"> Keep screen on while listening</label>
+      <p class="muted small">Reading stops if the phone locks. Keeping the screen on uses more battery.</p>
+      <button id="testVoiceBtn" class="btn secondary">Test voice</button>
+      <h3>About</h3>
+      <p class="small">Articles from <a href="https://en.wikipedia.org" target="_blank" rel="noopener">English Wikipedia</a>, CC BY-SA 4.0.</p>
+      <p id="storageInfo" class="muted small"></p>
+      <button id="clearReadBtn" class="btn secondary">Clear "read" marks</button>
+      <p class="muted small" id="versionInfo"></p>
+    </div>
+  </section>
+
+  <div id="player" class="player hidden">
+    <button id="plTitle" class="pltitle"></button>
+    <div class="plcontrols">
+      <button id="plPrev" class="iconbtn" aria-label="Previous paragraph">⏮︎</button>
+      <button id="plPlay" class="iconbtn big" aria-label="Play">▶︎</button>
+      <button id="plNext" class="iconbtn" aria-label="Next paragraph">⏭︎</button>
+      <button id="plRate" class="iconbtn" aria-label="Speed">1×</button>
+      <button id="plStop" class="iconbtn" aria-label="Stop">✕</button>
+    </div>
+  </div>
+
+  <script src="lib.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

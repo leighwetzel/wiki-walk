@@ -1,0 +1,560 @@
+(() => {
+  'use strict';
+  const VERSION = '1.0.0';
+  const W = window.WW;
+  const $ = (id) => document.getElementById(id);
+  const API = 'https://en.wikipedia.org/w/api.php';
+  const API_HEADERS = { 'Api-User-Agent': 'WikiWalk/1.0 (https://walk.xoleigh.com; family walking-tour app)' };
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const ls = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } },
+  };
+
+  /* ---------- IndexedDB (articles + saved places) ---------- */
+  const db = (() => {
+    let p;
+    function open() {
+      if (!p) {
+        p = new Promise((res, rej) => {
+          const r = indexedDB.open('wikiwalk', 1);
+          r.onupgradeneeded = () => { const d = r.result; d.createObjectStore('articles'); d.createObjectStore('kv'); };
+          r.onsuccess = () => res(r.result);
+          r.onerror = () => rej(r.error);
+        });
+      }
+      return p;
+    }
+    function req(store, mode, fn) {
+      return open().then((d) => new Promise((res, rej) => {
+        const t = d.transaction(store, mode);
+        const q = fn(t.objectStore(store));
+        t.oncomplete = () => res(q && q.result);
+        t.onerror = () => rej(t.error);
+        t.onabort = () => rej(t.error);
+      })).catch(() => undefined);
+    }
+    return {
+      get: (s, k) => req(s, 'readonly', (os) => os.get(k)),
+      put: (s, k, v) => req(s, 'readwrite', (os) => os.put(v, k)),
+    };
+  })();
+
+  /* ---------- State ---------- */
+  const S = {
+    pos: null, acc: null, fixTime: 0, source: 'gps', stopName: '',
+    center: null, lastSortPos: null, loading: false, pending: false,
+    radius: ls.get('radius', 805), read: new Set(ls.get('read', [])),
+    seen: {}, fromCache: false, current: null,
+  };
+
+  async function fetchJSON(params) {
+    const url = API + '?' + new URLSearchParams(params).toString();
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 15000);
+    try {
+      const r = await fetch(url, { headers: API_HEADERS, signal: ctl.signal });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return await r.json();
+    } finally { clearTimeout(t); }
+  }
+
+  async function fetchNearby(lat, lon, radius) {
+    const r = await fetchJSON({
+      action: 'query', format: 'json', formatversion: '2', origin: '*',
+      generator: 'geosearch', ggscoord: lat + '|' + lon,
+      ggsradius: String(Math.min(10000, Math.round(radius))), ggslimit: '50', ggsnamespace: '0',
+      prop: 'coordinates|description|pageimages', colimit: 'max',
+      piprop: 'thumbnail', pithumbsize: '160', pilimit: 'max',
+    });
+    const pages = (r.query && r.query.pages) || [];
+    return pages.filter((p) => p.coordinates && p.coordinates[0]).map((p) => ({
+      id: p.pageid, title: p.title, desc: p.description || '',
+      lat: p.coordinates[0].lat, lon: p.coordinates[0].lon,
+      thumb: (p.thumbnail && p.thumbnail.source) || null,
+    }));
+  }
+
+  async function fetchArticle(pageid) {
+    const r = await fetchJSON({
+      action: 'query', format: 'json', formatversion: '2', origin: '*',
+      pageids: String(pageid), prop: 'extracts|pageimages|description|coordinates|info',
+      explaintext: '1', exsectionformat: 'wiki', piprop: 'thumbnail', pithumbsize: '800', inprop: 'url',
+    });
+    const p = r.query && r.query.pages && r.query.pages[0];
+    if (!p || p.missing) throw new Error('missing');
+    return {
+      id: p.pageid, title: p.title, desc: p.description || '', extract: p.extract || '',
+      image: (p.thumbnail && p.thumbnail.source) || null,
+      url: p.fullurl || ('https://en.wikipedia.org/?curid=' + p.pageid),
+      lat: p.coordinates && p.coordinates[0] ? p.coordinates[0].lat : null,
+      lon: p.coordinates && p.coordinates[0] ? p.coordinates[0].lon : null,
+      saved: Date.now(),
+    };
+  }
+
+  /* ---------- Location ---------- */
+  let watchId = null;
+  function startGps() {
+    S.source = 'gps';
+    $('placePicker').classList.add('hidden');
+    if (!('geolocation' in navigator)) { showPicker('This device has no location service. Browse from a stop instead:'); return; }
+    if (watchId != null) navigator.geolocation.clearWatch(watchId);
+    $('locStatus').textContent = 'Finding your location…';
+    watchId = navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
+  }
+  function onPos(p) {
+    if (S.source !== 'gps') return;
+    $('placePicker').classList.add('hidden');
+    S.pos = { lat: p.coords.latitude, lon: p.coords.longitude };
+    S.acc = p.coords.accuracy;
+    S.fixTime = Date.now();
+    updateLocStatus();
+    maybeRefresh();
+  }
+  function onPosErr(e) {
+    if (S.source !== 'gps') return;
+    if (e.code === 1) {
+      showPicker('Location is off for this app. Turn it on in iPhone Settings → Privacy & Security → Location Services (Safari Websites), or browse from a stop:');
+    } else if (!S.pos) {
+      showPicker("Can't get a GPS fix yet. Keep waiting, or browse from a stop:");
+    }
+  }
+  function showPicker(msg) {
+    $('placeMsg').textContent = msg;
+    $('placePicker').classList.remove('hidden');
+    if (!S.pos) $('locStatus').textContent = 'No location yet';
+  }
+  function useStop(id) {
+    const st = W.STOPS.find((s) => s.id === id);
+    if (!st) return;
+    S.source = 'stop';
+    S.stopName = st.name;
+    S.pos = { lat: st.lat, lon: st.lon };
+    S.acc = null;
+    S.center = null;
+    $('placePicker').classList.add('hidden');
+    updateLocStatus();
+    maybeRefresh();
+  }
+  function updateLocStatus() {
+    const el = $('locStatus');
+    if (!S.pos) return;
+    if (S.source === 'stop') {
+      el.innerHTML = 'Browsing from <b>' + esc(S.stopName) + '</b> · <button class="linkbtn" id="backToGps">Use GPS</button>';
+      $('backToGps').onclick = startGps;
+      return;
+    }
+    const secs = Math.round((Date.now() - S.fixTime) / 1000);
+    const age = secs < 5 ? 'just now' : secs < 90 ? secs + ' s ago' : Math.round(secs / 60) + ' min ago';
+    el.textContent = 'GPS ' + W.formatAccuracy(S.acc) + ' · ' + age;
+  }
+  setInterval(updateLocStatus, 10000);
+
+  /* ---------- Nearby list ---------- */
+  function maybeRefresh() {
+    if (!S.pos) return;
+    const moved = S.center ? W.distanceM(S.center.lat, S.center.lon, S.pos.lat, S.pos.lon) : Infinity;
+    if (moved > S.radius * 0.33) { refresh(); return; }
+    // Re-sort only after ~50 ft of movement so the list doesn't jump while reading.
+    if (!S.lastSortPos || W.distanceM(S.lastSortPos.lat, S.lastSortPos.lon, S.pos.lat, S.pos.lon) > 15) render();
+  }
+
+  async function refresh() {
+    if (S.loading) { S.pending = true; return; }
+    S.loading = true;
+    const at = { ...S.pos };
+    S.center = at;
+    if (!Object.keys(S.seen).length) render();
+    try {
+      const fresh = await fetchNearby(at.lat, at.lon, S.radius);
+      for (const p of fresh) S.seen[p.id] = p;
+      trimSeen();
+      db.put('kv', 'seen', S.seen);
+      S.fromCache = false;
+    } catch (e) {
+      S.fromCache = true; // offline or API trouble: use what's saved
+    }
+    S.loading = false;
+    updateNet();
+    render();
+    if (S.pending) { S.pending = false; maybeRefresh(); }
+  }
+  function trimSeen() {
+    const ids = Object.keys(S.seen);
+    if (ids.length <= 3000 || !S.pos) return;
+    ids.map((id) => [id, W.distanceM(S.pos.lat, S.pos.lon, S.seen[id].lat, S.seen[id].lon)])
+      .sort((a, b) => b[1] - a[1]).slice(0, ids.length - 3000).forEach(([id]) => delete S.seen[id]);
+  }
+
+  function render() {
+    if (!S.pos) return;
+    S.lastSortPos = { ...S.pos };
+    const items = Object.values(S.seen).map((p) => ({
+      ...p,
+      d: W.distanceM(S.pos.lat, S.pos.lon, p.lat, p.lon),
+      b: W.bearingDeg(S.pos.lat, S.pos.lon, p.lat, p.lon),
+    })).filter((p) => p.d <= S.radius * 1.05).sort((a, b) => a.d - b.d);
+
+    const ul = $('list');
+    ul.textContent = '';
+    for (const p of items) {
+      const li = document.createElement('li');
+      if (S.read.has(p.id)) li.classList.add('read');
+      li.innerHTML =
+        (p.thumb ? '<img class="thumb" loading="lazy" alt="" src="' + esc(p.thumb) + '">' : '<div class="thumb empty">◎</div>') +
+        '<div class="li-main"><div class="li-title">' + esc(p.title) + '</div>' +
+        (p.desc ? '<div class="li-desc">' + esc(p.desc) + '</div>' : '') +
+        (S.read.has(p.id) ? '<div class="check">✓ read</div>' : '') + '</div>' +
+        '<div class="li-dist">' + W.formatDist(p.d) + '<small>' + W.compass(p.b) + '</small></div>';
+      const img = li.querySelector('img');
+      if (img) img.onerror = () => { const d = document.createElement('div'); d.className = 'thumb empty'; d.textContent = '◎'; img.replaceWith(d); };
+      li.onclick = () => openArticle(p);
+      ul.appendChild(li);
+    }
+    const empty = $('listEmpty');
+    if (items.length) { empty.classList.add('hidden'); return; }
+    empty.classList.remove('hidden');
+    const r = $('radiusSel').selectedOptions[0].textContent;
+    if (S.loading) empty.textContent = 'Looking for nearby articles…';
+    else if (S.fromCache || !navigator.onLine) empty.textContent = "You're offline, and nothing is saved for this spot yet. Articles you've already opened still work.";
+    else empty.textContent = 'No Wikipedia articles within ' + r + '. Try a bigger radius.';
+  }
+
+  function updateNet() {
+    const chip = $('netChip');
+    const off = !navigator.onLine || S.fromCache;
+    chip.textContent = off ? 'Offline · saved' : 'Live';
+    chip.classList.toggle('off', off);
+  }
+  window.addEventListener('online', () => { updateNet(); S.center = null; maybeRefresh(); });
+  window.addEventListener('offline', updateNet);
+
+  /* ---------- Article view ---------- */
+  function showSheet(id) {
+    ['articleView', 'settingsView'].forEach((s) => $(s).classList.toggle('hidden', s !== id));
+    if (id) history.pushState({ sheet: id }, '');
+  }
+  function closeSheets() {
+    $('articleView').classList.add('hidden');
+    $('settingsView').classList.add('hidden');
+    S.current = null;
+    if (S.pos) render();
+  }
+  window.addEventListener('popstate', closeSheets);
+  $('backBtn').onclick = () => history.back();
+  $('settingsBack').onclick = () => history.back();
+
+  function markRead(id) {
+    if (S.read.has(id)) return;
+    S.read.add(id);
+    ls.set('read', [...S.read]);
+  }
+
+  async function openArticle(place) {
+    S.current = place;
+    showSheet('articleView');
+    $('articleView').scrollTop = 0;
+    const body = $('articleBody');
+    body.innerHTML = '<h2>' + esc(place.title) + '</h2><p class="muted">Loading…</p>';
+    markRead(place.id);
+    let art = await db.get('articles', place.id);
+    if (!art) {
+      try {
+        art = await fetchArticle(place.id);
+        db.put('articles', place.id, art);
+      } catch (e) {
+        if (S.current !== place) return;
+        body.innerHTML = '<h2>' + esc(place.title) + '</h2><p>' + esc(place.desc) + '</p>' +
+          "<p class=\"muted\">This article isn't saved on this phone, and there's no connection right now. Try again when you have signal.</p>";
+        return;
+      }
+    }
+    if (S.current !== place) return;
+    renderArticle(art, place);
+  }
+
+  function renderArticle(art, place) {
+    const blocks = W.parseExtract(art.extract);
+    if (!blocks.length && art.desc) blocks.push({ type: 'p', text: art.desc });
+    const lat = art.lat != null ? art.lat : place.lat;
+    const lon = art.lon != null ? art.lon : place.lon;
+    let meta = '';
+    if (S.pos && lat != null) {
+      const d = W.distanceM(S.pos.lat, S.pos.lon, lat, lon);
+      meta = W.formatDist(d) + ' ' + W.compass(W.bearingDeg(S.pos.lat, S.pos.lon, lat, lon));
+    }
+    if (art.desc) meta += (meta ? ' · ' : '') + art.desc;
+    let h = '<h2>' + esc(art.title) + '</h2>';
+    if (meta) h += '<div class="meta">' + esc(meta) + '</div>';
+    if ('speechSynthesis' in window) h += '<button id="artPlay" class="btn play">▶︎ Listen</button>';
+    h += '<div class="actions">';
+    if (lat != null) h += '<a class="btn secondary" href="https://maps.apple.com/?daddr=' + lat + ',' + lon + '&dirflg=w">Directions</a>';
+    h += '<a class="btn secondary" href="' + esc(art.url) + '" target="_blank" rel="noopener">Wikipedia</a></div>';
+    if (art.image) h += '<img class="lead-img" alt="" src="' + esc(art.image) + '" onerror="this.remove()">';
+    blocks.forEach((b, i) => {
+      if (b.type === 'h') { const tag = b.level <= 2 ? 'h3' : 'h4'; h += '<' + tag + ' data-block="' + i + '">' + esc(b.text) + '</' + tag + '>'; }
+      else h += '<p data-block="' + i + '">' + esc(b.text) + '</p>';
+    });
+    h += '<p class="attrib">Text from the Wikipedia article “<a href="' + esc(art.url) + '" target="_blank" rel="noopener">' + esc(art.title) +
+      '</a>,” available under <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>.</p>';
+    const body = $('articleBody');
+    body.innerHTML = h;
+    const playBtn = $('artPlay');
+    if (playBtn) playBtn.onclick = () => {
+      if (P.art && P.art.id === art.id) { P.playing ? pause() : play(); }
+      else { loadPlayer(art, blocks); play(); }
+    };
+    body.querySelectorAll('[data-block]').forEach((el) => {
+      el.addEventListener('click', () => {
+        if (!P.art || P.art.id !== art.id) return;
+        jumpToBlock(+el.dataset.block);
+      });
+    });
+    syncPlayerUI();
+    if (P.art && P.art.id === art.id) highlight(currentBlock(), false);
+  }
+
+  /* ---------- Read-aloud ---------- */
+  const synth = window.speechSynthesis;
+  const RATES = [0.9, 1, 1.25];
+  const P = { art: null, segs: [], i: 0, playing: false, token: 0, rate: ls.get('rate', 1), timer: null };
+  let voices = [];
+  function loadVoices() {
+    if (!synth) return;
+    voices = synth.getVoices();
+    const sel = $('voiceSel');
+    const en = voices.filter((v) => /^en[-_]/i.test(v.lang))
+      .sort((a, b) => (a.lang + a.name).localeCompare(b.lang + b.name));
+    const cur = W.pickVoice(voices, ls.get('voice', null));
+    sel.innerHTML = en.map((v) => '<option value="' + esc(v.voiceURI) + '"' + (cur && cur.voiceURI === v.voiceURI ? ' selected' : '') + '>' +
+      esc(v.name) + ' (' + esc(v.lang) + ')</option>').join('') || '<option>Default voice</option>';
+  }
+  if (synth) {
+    loadVoices();
+    if ('onvoiceschanged' in synth) synth.onvoiceschanged = loadVoices;
+    setTimeout(loadVoices, 1000);
+  }
+  $('voiceSel').onchange = (e) => ls.set('voice', e.target.value);
+  const voice = () => W.pickVoice(voices, ls.get('voice', null));
+
+  function loadPlayer(art, blocks) {
+    stop(true);
+    P.art = art;
+    P.segs = [{ block: -1, text: art.title + '.' }].concat(W.speechSegments(blocks));
+    P.i = 0;
+    $('player').classList.remove('hidden');
+    $('plTitle').textContent = art.title;
+  }
+  function currentBlock() { const s = P.segs[P.i]; return s ? s.block : -1; }
+
+  function speakCurrent() {
+    clearTimeout(P.timer);
+    const seg = P.segs[P.i];
+    if (!seg) { finished(); return; }
+    const tok = ++P.token;
+    const u = new SpeechSynthesisUtterance(seg.text);
+    const v = voice();
+    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-US';
+    u.rate = P.rate;
+    const advance = () => { if (tok !== P.token || !P.playing) return; P.i++; speakCurrent(); };
+    u.onend = advance;
+    u.onerror = (e) => { if (e.error === 'interrupted' || e.error === 'canceled') return; advance(); };
+    highlight(seg.block, true);
+    synth.speak(u);
+    // Watchdog: iOS sometimes never fires onend.
+    const est = (seg.text.length / (14 * P.rate)) * 1000 + 4000;
+    const check = () => {
+      if (tok !== P.token || !P.playing) return;
+      if (synth.speaking) { P.timer = setTimeout(check, 2000); return; }
+      advance();
+    };
+    P.timer = setTimeout(check, est);
+  }
+
+  function play() {
+    if (!P.art || !synth) return;
+    if (P.i >= P.segs.length) P.i = 0;
+    P.playing = true;
+    synth.cancel();
+    speakCurrent();
+    wakeOn();
+    syncPlayerUI();
+  }
+  function pause() {
+    P.playing = false;
+    P.token++;
+    clearTimeout(P.timer);
+    if (synth) synth.cancel();
+    wakeOff();
+    syncPlayerUI();
+  }
+  function stop(keepHidden) {
+    pause();
+    P.art = null;
+    P.segs = [];
+    P.i = 0;
+    clearHighlight();
+    if (keepHidden !== true) $('player').classList.add('hidden');
+  }
+  function finished() {
+    P.playing = false;
+    P.i = 0;
+    clearHighlight();
+    wakeOff();
+    syncPlayerUI();
+  }
+  function jumpToBlock(block) {
+    const idx = P.segs.findIndex((s) => s.block === block);
+    if (idx < 0) return;
+    P.i = idx;
+    if (P.playing) { P.token++; synth.cancel(); speakCurrent(); } else highlight(block, false);
+  }
+  function step(dir) {
+    if (!P.art) return;
+    const cur = currentBlock();
+    let idx;
+    if (dir > 0) idx = P.segs.findIndex((s) => s.block > cur);
+    else {
+      // go to start of current paragraph, or previous one if already at its start
+      const start = P.segs.findIndex((s) => s.block === cur);
+      const target = (P.i > start) ? cur : (P.segs.slice(0, start).reverse().find(() => true) || P.segs[0]).block;
+      idx = P.segs.findIndex((s) => s.block === target);
+    }
+    if (idx < 0) return;
+    P.i = idx;
+    if (P.playing) { P.token++; synth.cancel(); speakCurrent(); } else highlight(currentBlock(), true);
+  }
+  function cycleRate() {
+    const i = RATES.indexOf(P.rate);
+    P.rate = RATES[(i + 1) % RATES.length];
+    ls.set('rate', P.rate);
+    syncPlayerUI();
+    if (P.playing) { P.token++; synth.cancel(); speakCurrent(); }
+  }
+
+  function clearHighlight() { document.querySelectorAll('.speaking').forEach((el) => el.classList.remove('speaking')); }
+  function highlight(block, scroll) {
+    clearHighlight();
+    if (!S.current || !P.art || S.current.id !== P.art.id || block < 0) return;
+    const el = document.querySelector('#articleBody [data-block="' + block + '"]');
+    if (!el) return;
+    el.classList.add('speaking');
+    if (scroll && !$('articleView').classList.contains('hidden')) {
+      const r = el.getBoundingClientRect();
+      if (r.top < 70 || r.bottom > window.innerHeight - 130) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }
+
+  function syncPlayerUI() {
+    $('plPlay').textContent = P.playing ? '❚❚' : '▶︎';
+    $('plPlay').setAttribute('aria-label', P.playing ? 'Pause' : 'Play');
+    $('plRate').textContent = P.rate + '×';
+    const ap = $('artPlay');
+    if (ap && S.current) {
+      const same = P.art && P.art.id === S.current.id;
+      ap.textContent = same && P.playing ? '❚❚ Pause' : same && P.i > 0 ? '▶︎ Resume' : '▶︎ Listen';
+    }
+  }
+
+  $('plPlay').onclick = () => (P.playing ? pause() : play());
+  $('plPrev').onclick = () => step(-1);
+  $('plNext').onclick = () => step(1);
+  $('plRate').onclick = cycleRate;
+  $('plStop').onclick = () => stop();
+  $('plTitle').onclick = () => {
+    if (!P.art) return;
+    if (S.current && S.current.id === P.art.id) return;
+    openArticle({ id: P.art.id, title: P.art.title, desc: P.art.desc, lat: P.art.lat, lon: P.art.lon });
+  };
+
+  /* Screen wake lock */
+  let wl = null;
+  async function wakeOn() {
+    if (!ls.get('wake', true) || !('wakeLock' in navigator)) return;
+    try { wl = await navigator.wakeLock.request('screen'); wl.addEventListener('release', () => { wl = null; }); } catch (e) { wl = null; }
+  }
+  function wakeOff() { if (wl) { wl.release().catch(() => {}); wl = null; } }
+  document.addEventListener('visibilitychange', () => {
+    // iOS stops speech when the app goes to the background or the screen locks; pause so Resume picks up here.
+    if (document.visibilityState === 'hidden' && P.playing) pause();
+  });
+
+  /* ---------- Settings ---------- */
+  $('settingsBtn').onclick = async () => {
+    showSheet('settingsView');
+    $('wakeChk').checked = ls.get('wake', true);
+    loadVoices();
+    $('versionInfo').textContent = 'Version ' + VERSION + ('wakeLock' in navigator ? '' : ' · Keep-screen-on is not supported on this iOS version.');
+    const info = $('storageInfo');
+    try {
+      const est = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null;
+      const per = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted() : false;
+      info.textContent = (est ? 'Saved on this phone: ' + (est.usage / 1048576).toFixed(1) + ' MB. ' : '') +
+        (per ? 'Storage is protected from automatic cleanup.' : 'Storage may be cleared by iOS if the app goes unused.');
+    } catch (e) { info.textContent = ''; }
+  };
+  $('wakeChk').onchange = (e) => ls.set('wake', e.target.checked);
+  $('testVoiceBtn').onclick = () => {
+    if (!synth) return;
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance('This is how articles will sound on your walk.');
+    const v = voice(); if (v) { u.voice = v; u.lang = v.lang; }
+    u.rate = P.rate;
+    synth.speak(u);
+  };
+  $('clearReadBtn').onclick = () => { S.read.clear(); ls.set('read', []); };
+
+  /* Text size */
+  function applyFs(px) { document.documentElement.style.setProperty('--fs', px + 'px'); ls.set('fs', px); }
+  applyFs(ls.get('fs', 19));
+  $('textSmaller').onclick = () => applyFs(Math.max(15, ls.get('fs', 19) - 2));
+  $('textLarger').onclick = () => applyFs(Math.min(27, ls.get('fs', 19) + 2));
+
+  /* Radius */
+  const rs = $('radiusSel');
+  rs.value = String(S.radius);
+  if (!rs.value) { rs.value = '805'; S.radius = 805; }
+  rs.onchange = () => { S.radius = +rs.value; ls.set('radius', S.radius); S.center = null; maybeRefresh(); render(); };
+
+  /* Stop picker */
+  $('placeSel').innerHTML = '<option value="">Choose a stop…</option>' +
+    W.STOPS.map((s) => '<option value="' + s.id + '">' + esc(s.name) + '</option>').join('');
+  $('placeSel').onchange = (e) => { if (e.target.value) useStop(e.target.value); };
+  $('useGpsBtn').onclick = startGps;
+
+  /* Install hint + banners */
+  const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS && !standalone && !ls.get('hintDismissed', false)) $('installHint').classList.remove('hidden');
+  document.querySelectorAll('[data-dismiss]').forEach((b) => {
+    b.onclick = () => { $(b.dataset.dismiss).classList.add('hidden'); ls.set('hintDismissed', true); };
+  });
+  if (standalone && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+
+  /* Service worker + updates */
+  if ('serviceWorker' in navigator) {
+    let reloading = false;
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      const showUpdate = () => $('updateBanner').classList.remove('hidden');
+      if (reg.waiting && navigator.serviceWorker.controller) showUpdate();
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener('statechange', () => { if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdate(); });
+      });
+      $('updateBtn').onclick = () => { reloading = true; if (reg.waiting) reg.waiting.postMessage('skipWaiting'); else location.reload(); };
+      setInterval(() => reg.update().catch(() => {}), 30 * 60 * 1000);
+    }).catch(() => {});
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (reloading) location.reload(); });
+  }
+
+  /* ---------- Start ---------- */
+  history.replaceState({ sheet: null }, '');
+  updateNet();
+  db.get('kv', 'seen').then((seen) => {
+    if (seen && typeof seen === 'object') S.seen = Object.assign(seen, S.seen);
+    if (S.pos) render();
+  });
+  startGps();
+})();
