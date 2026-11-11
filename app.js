@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.2.4';
+  const VERSION = '1.3.0';
   const W = window.WW;
   const $ = (id) => document.getElementById(id);
   const API = 'https://en.wikipedia.org/w/api.php';
@@ -73,20 +73,54 @@
     const params = {
       action: 'query', format: 'json', formatversion: '2', origin: '*',
       generator: 'geosearch', ggscoord: lat + '|' + lon,
-      ggsradius: String(Math.min(10000, Math.round(radius))), ggslimit: '300', ggsnamespace: '0',
-      prop: 'coordinates|description|pageimages', colimit: 'max',
+      ggsradius: String(Math.min(10000, Math.round(radius))), ggslimit: '300', ggsnamespace: '0', ggsprimary: 'all',
+      prop: 'coordinates|description|pageimages', colimit: 'max', coprimary: 'all',
       piprop: 'thumbnail', pithumbsize: '160', pilimit: 'max',
     };
     if (lang === 'fr') { params.prop += '|langlinks'; params.lllang = 'en'; params.lllimit = 'max'; }
     const r = await fetchJSON(params, lang);
     const pages = (r.query && r.query.pages) || [];
-    return pages.filter((p) => p.coordinates && p.coordinates[0]).map((p) => {
-      const base = { lat: p.coordinates[0].lat, lon: p.coordinates[0].lon, thumb: (p.thumbnail && p.thumbnail.source) || null };
+    return mapPages(pages.filter((p) => p.coordinates && p.coordinates[0]), lang);
+  }
+
+  function mapPages(pages, lang) {
+    return pages.map((p) => {
+      const c = p.coordinates && p.coordinates[0];
+      const base = { lat: c ? c.lat : null, lon: c ? c.lon : null, thumb: (p.thumbnail && p.thumbnail.source) || null };
       if (lang !== 'fr') return { ...base, id: p.pageid, lang: 'en', title: p.title, desc: p.description || '' };
       const en = p.langlinks && p.langlinks[0] && (p.langlinks[0].title || p.langlinks[0]['*']);
-      if (en) return { ...base, id: 'ent:' + en, lang: 'en', title: en, desc: '' };
+      if (en) return { ...base, id: 'ent:' + en, lang: 'en', title: en, desc: 'French: ' + p.title, frTitle: p.title };
       return { ...base, id: 'fr:' + p.pageid, lang: 'fr', pageid: p.pageid, title: p.title, desc: p.description || '' };
     });
+  }
+
+  async function searchWiki(q) {
+    const langs = frEnabled() ? ['en', 'fr'] : ['en'];
+    const res = await Promise.allSettled(langs.map(async (lang) => {
+      const params = {
+        action: 'query', format: 'json', formatversion: '2', origin: '*',
+        generator: 'search', gsrsearch: q, gsrlimit: '10', gsrnamespace: '0',
+        prop: 'coordinates|description|pageimages', coprimary: 'all', colimit: 'max',
+        piprop: 'thumbnail', pithumbsize: '160', pilimit: 'max',
+      };
+      if (lang === 'fr') { params.prop += '|langlinks'; params.lllang = 'en'; params.lllimit = 'max'; }
+      const r = await fetchJSON(params, lang);
+      const pages = ((r.query && r.query.pages) || []).sort((a, b) => (a.index || 0) - (b.index || 0));
+      return mapPages(pages, lang);
+    }));
+    if (res.every((r) => r.status !== 'fulfilled')) throw new Error('offline');
+    const seen = new Set();
+    const out = [];
+    // interleave: best English, best French, ...
+    const lists = res.map((r) => (r.status === 'fulfilled' ? r.value : []));
+    for (let i = 0; i < 10; i++) for (const l of lists) {
+      const p = l[i];
+      if (!p) continue;
+      const k = p.lang + '|' + String(p.title).toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k); out.push(p);
+    }
+    return out;
   }
 
   async function fetchArticle(item) {
@@ -273,6 +307,7 @@
 
   function currentItems() {
     if (!S.pos) return [];
+    if (S.search) return [];
     const fr = frEnabled();
     const byTitle = new Map();
     for (const p of Object.values(S.seen)) {
@@ -280,7 +315,9 @@
       const k = 'en|' + String(p.title).toLowerCase();
       const prev = byTitle.get(k);
       // Prefer the English result with a real page id over one found through French Wikipedia.
-      if (!prev || (typeof prev.id !== 'number' && typeof p.id === 'number')) byTitle.set(k, p);
+      if (!prev) byTitle.set(k, p);
+      else if (typeof prev.id !== 'number' && typeof p.id === 'number') byTitle.set(k, { ...p, desc: p.desc || prev.desc });
+      else if (typeof p.id !== 'number' && typeof prev.id === 'number' && !prev.desc) byTitle.set(k, { ...prev, desc: p.desc });
     }
     return [...byTitle.values()].map((p) => ({
       ...p,
@@ -290,10 +327,15 @@
   }
 
   function render() {
-    if (!S.pos) return;
-    S.lastSortPos = { ...S.pos };
-    const items = currentItems();
-    drawPins(items);
+    if (!S.pos && !S.search) return;
+    if (S.pos) S.lastSortPos = { ...S.pos };
+    let items = currentItems();
+    if (S.search) {
+      items = S.search.items.map((p) => (p.lat != null && S.pos ? {
+        ...p, d: W.distanceM(S.pos.lat, S.pos.lon, p.lat, p.lon), b: W.bearingDeg(S.pos.lat, S.pos.lon, p.lat, p.lon),
+      } : { ...p }));
+    }
+    drawPins(items.filter((p) => p.lat != null));
 
     const ul = $('list');
     ul.textContent = '';
@@ -305,7 +347,7 @@
         '<div class="li-main"><div class="li-title">' + (p.lang === 'fr' ? '<span class="frtag">FR</span>' : '') + esc(p.title) + '</div>' +
         (p.desc ? '<div class="li-desc">' + esc(p.desc) + '</div>' : '') +
         (S.read.has(p.id) ? '<div class="check">✓ read</div>' : '') + '</div>' +
-        '<div class="li-dist">' + W.formatDist(p.d) + '<small>' + W.compass(p.b) + '</small></div>';
+        '<div class="li-dist">' + (p.d != null ? W.formatDist(p.d) + '<small>' + W.compass(p.b) + '</small>' : '') + '</div>';
       const img = li.querySelector('img');
       if (img) img.onerror = () => { const d = document.createElement('div'); d.className = 'thumb empty'; d.textContent = '◎'; img.replaceWith(d); };
       li.onclick = () => openArticle(p);
@@ -315,7 +357,8 @@
     if (items.length || view !== 'list') { empty.classList.add('hidden'); return; }
     empty.classList.remove('hidden');
     const r = $('radiusSel').selectedOptions[0].textContent;
-    if (S.loading) empty.textContent = 'Looking for nearby articles…';
+    if (S.search) empty.textContent = S.search.items ? 'No matches for “' + S.search.q + '”.' : 'Searching…';
+    else if (S.loading) empty.textContent = 'Looking for nearby articles…';
     else if (S.fromCache || !navigator.onLine) empty.textContent = "You're offline, and nothing is saved for this spot yet. Articles you've already opened still work.";
     else empty.textContent = 'No Wikipedia articles within ' + r + '. Try a bigger radius.';
   }
@@ -387,6 +430,30 @@
       pinLayer.addLayer(m);
     }
   }
+  $('searchForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const q = $('searchInput').value.trim();
+    $('searchInput').blur();
+    if (!q) { clearSearch(); return; }
+    S.search = { q, items: [] };
+    $('searchClear').classList.remove('hidden');
+    if (view !== 'list') setView('list');
+    $('list').textContent = '';
+    $('listEmpty').classList.remove('hidden');
+    $('listEmpty').textContent = 'Searching…';
+    try { S.search.items = await searchWiki(q); }
+    catch (err) { S.search.items = []; $('listEmpty').textContent = 'Search needs a connection.'; return; }
+    pinKey = '';
+    render();
+  };
+  function clearSearch() {
+    S.search = null;
+    $('searchInput').value = '';
+    $('searchClear').classList.add('hidden');
+    pinKey = '';
+    render();
+  }
+  $('searchClear').onclick = clearSearch;
   $('tabList').onclick = () => setView('list');
   $('tabMap').onclick = () => setView('map');
   $('recenterBtn').onclick = centerMap;
