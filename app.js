@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.2.2';
+  const VERSION = '1.2.3';
   const W = window.WW;
   const $ = (id) => document.getElementById(id);
   const API = 'https://en.wikipedia.org/w/api.php';
@@ -125,25 +125,15 @@
     for (const model of models) {
       const body = { model, messages: [{ role: 'system', content: TR_PROMPT }, { role: 'user', content: text }] };
       if (model.startsWith('gpt-5')) body.reasoning_effort = 'minimal';
-      const ctl = new AbortController();
-      const t = setTimeout(() => ctl.abort(), 90000);
       try {
-        const r = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST', signal: ctl.signal,
-          headers: { Authorization: 'Bearer ' + aiKey(), 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (r.ok) {
-          const j = await r.json();
-          ls.set('trModel', model);
-          return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
-        }
-        let msg = 'HTTP ' + r.status;
-        try { const j = await r.json(); if (j.error && j.error.message) msg = j.error.message; } catch (e) { /* ignore */ }
-        const err = new Error(msg); err.status = r.status;
-        if (r.status === 401 || r.status === 403 || r.status === 429) throw err;
+        const r = await openai('chat/completions', body, 90000);
+        const j = await r.json();
+        ls.set('trModel', model);
+        return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+      } catch (err) {
+        if (err.status === 401 || err.status === 403 || err.status === 429) throw err;
         lastErr = err; // model not available etc.: try the next model
-      } finally { clearTimeout(t); }
+      }
     }
     throw lastErr || new Error('No translation model available');
   }
@@ -467,7 +457,7 @@
       db.put('articles', art.id, art);
     } catch (e) {
       art.trError = (e && (e.status === 401 || e.status === 403)) ? 'The OpenAI key was rejected for translation.'
-        : (e && e.status === 429) ? 'The OpenAI account is out of credit or rate-limited.'
+        : (e && e.status === 429) ? 'OpenAI said: ' + e.message
         : "Couldn't translate right now.";
     }
     if (S.current === place) renderArticle(art, place);
@@ -588,22 +578,40 @@
     if (synth) { try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; synth.speak(u); } catch (e) { /* ignore */ } }
   }
 
-  async function aiFetch(text) {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 30000);
-    try {
-      const r = await fetch(AI_URL, {
-        method: 'POST', signal: ctl.signal,
-        headers: { Authorization: 'Bearer ' + aiKey(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: AI_MODEL, voice: aiVoice(), input: text, instructions: AI_INSTR, response_format: 'mp3' }),
-      });
-      if (!r.ok) {
-        let msg = 'HTTP ' + r.status;
-        try { const j = await r.json(); if (j.error && j.error.message) msg = j.error.message; } catch (e) { /* ignore */ }
-        const err = new Error(msg); err.status = r.status; throw err;
+  // One OpenAI request at a time, with waits and retries when OpenAI says "too many requests".
+  let aiQueue = Promise.resolve();
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  function openai(path, body, timeoutMs) {
+    const run = async () => {
+      for (let attempt = 0; ; attempt++) {
+        const ctl = new AbortController();
+        const t = setTimeout(() => ctl.abort(), timeoutMs || 45000);
+        let r;
+        try {
+          r = await fetch('https://api.openai.com/v1/' + path, {
+            method: 'POST', signal: ctl.signal,
+            headers: { Authorization: 'Bearer ' + aiKey(), 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+        } finally { clearTimeout(t); }
+        if (r.ok) return r;
+        let msg = 'HTTP ' + r.status, code = '';
+        try { const j = await r.json(); if (j.error) { msg = j.error.message || msg; code = j.error.code || j.error.type || ''; } } catch (e) { /* ignore */ }
+        if (r.status === 429 && code !== 'insufficient_quota' && attempt < 4) {
+          const ra = parseFloat(r.headers.get('retry-after'));
+          await sleep((isFinite(ra) ? ra * 1000 : 0) || [2000, 5000, 10000, 20000][attempt]);
+          continue;
+        }
+        const err = new Error(msg); err.status = r.status; err.code = code; throw err;
       }
-      return await r.blob();
-    } finally { clearTimeout(t); }
+    };
+    const p = aiQueue.then(run, run);
+    aiQueue = p.catch(() => {});
+    return p;
+  }
+  async function aiFetch(text) {
+    const r = await openai('audio/speech', { model: AI_MODEL, voice: aiVoice(), input: text, instructions: AI_INSTR, response_format: 'mp3' }, 30000);
+    return await r.blob();
   }
 
   // A unit = consecutive segments of the same paragraph, up to ~1500 characters (one AI request).
@@ -634,7 +642,7 @@
     P.engine = 'synth';
     let msg = "Couldn't reach the AI voice, so the iPhone voice is reading instead.";
     if (e && (e.status === 401 || e.status === 403)) msg = 'The OpenAI key was rejected. Check it in Settings. Using the iPhone voice for now.';
-    else if (e && e.status === 429) msg = 'The OpenAI account is out of credit or rate-limited. Using the iPhone voice for now.';
+    else if (e && e.status === 429) msg = (e.code === 'insufficient_quota' ? 'The OpenAI account or project is out of credit or over its budget.' : 'OpenAI is limiting how fast this new account can go.') + ' Using the iPhone voice for now.';
     showVoiceNote(msg);
   }
   function showVoiceNote(msg) {
@@ -666,9 +674,9 @@
     audioEl.onerror = () => { if (tok !== P.token || !P.playing) return; P.i = u.end + 1; aiPlayCurrent(); };
     try { await audioEl.play(); }
     catch (e) { if (tok === P.token) { P.playing = false; syncPlayerUI(); } return; }
-    // Fetch the next two pieces while this one plays.
+    // Fetch the next piece while this one plays.
     let n = u.end + 1;
-    for (let k = 0; k < 2; k++) { const nu = unitAt(n); if (!nu) break; getAudio(nu).catch(() => {}); n = nu.end + 1; }
+    const nu = unitAt(n); if (nu) getAudio(nu).catch(() => {});
   }
 
   /* --- Player (shared by both engines) --- */
@@ -907,7 +915,7 @@
       st.textContent = 'Working. This voice reads articles when you have signal, and replays saved ones offline.';
     } catch (e) {
       st.textContent = (e.status === 401 || e.status === 403) ? 'That key was rejected. Check it was copied in full.'
-        : e.status === 429 ? 'This OpenAI account has no credit or hit a limit.'
+        : e.status === 429 ? 'OpenAI said: ' + e.message
         : e.name === 'NotAllowedError' ? 'Audio was blocked. Tap Test AI voice again.'
         : "Couldn't reach OpenAI (" + e.message + '). Check your connection.';
     }
