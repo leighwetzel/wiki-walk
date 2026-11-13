@@ -184,3 +184,7 @@ body[data-sheet="settingsView"] #player { display: none; }
 .placeform input { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 16px; -webkit-appearance: none; }
 .maphint { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 500; background: var(--card); color: var(--text);
   border: 1px solid var(--line); border-radius: 99px; padding: 5px 12px; font-size: 13px; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,.15); white-space: nowrap; }
+
+.list li.sechead { background: none; border: 0; padding: 10px 4px 2px; margin: 0; cursor: default; font-size: 13px; font-weight: 700; color: var(--muted); text-transform: none; }
+.pin-ico { font-size: 28px; color: var(--accent); }
+.li-dist.go { color: var(--accent); font-weight: 650; }

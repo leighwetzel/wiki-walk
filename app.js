@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.4.0';
+  const VERSION = '1.4.1';
   const W = window.WW;
   const $ = (id) => document.getElementById(id);
   const API = 'https://en.wikipedia.org/w/api.php';
@@ -92,6 +92,26 @@
       if (en) return { ...base, id: 'ent:' + en, lang: 'en', title: en, desc: 'French: ' + p.title, frTitle: p.title };
       return { ...base, id: 'fr:' + p.pageid, lang: 'fr', pageid: p.pageid, title: p.title, desc: p.description || '' };
     });
+  }
+
+  // Address / place lookup via OpenStreetMap Nominatim (light use: only on submit, never as-you-type).
+  async function geocode(q) {
+    const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
+      q, format: 'jsonv2', limit: '4', 'accept-language': 'en', addressdetails: '0',
+    }).toString();
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 12000);
+    try {
+      const r = await fetch(url, { signal: ctl.signal });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json();
+      return (j || []).map((x) => {
+        const parts = String(x.display_name || '').split(',').map((t) => t.trim());
+        const name = x.name || parts[0] || q;
+        const rest = parts.filter((t) => t && t !== name).slice(0, 3).join(', ');
+        return { name, sub: rest, lat: +x.lat, lon: +x.lon };
+      }).filter((x) => isFinite(x.lat) && isFinite(x.lon));
+    } finally { clearTimeout(t); }
   }
 
   async function searchWiki(q) {
@@ -360,6 +380,19 @@
 
     const ul = $('list');
     ul.textContent = '';
+    const places = (S.search && S.search.places) || [];
+    if (places.length) {
+      ul.appendChild(sectionHead('Browse around a place'));
+      for (const pl of places) {
+        const li = document.createElement('li');
+        li.className = 'placerow';
+        li.innerHTML = '<div class="thumb empty pin-ico">⌖</div><div class="li-main"><div class="li-title">' + esc(pl.name) + '</div>' +
+          (pl.sub ? '<div class="li-desc">' + esc(pl.sub) + '</div>' : '') + '</div><div class="li-dist go">Browse ›</div>';
+        li.onclick = () => { clearSearch(true); useLocation(pl.name, pl.lat, pl.lon); };
+        ul.appendChild(li);
+      }
+      if (items.length) ul.appendChild(sectionHead('Wikipedia articles'));
+    }
     for (const p of items) {
       const li = document.createElement('li');
       if (S.read.has(p.id)) li.classList.add('read');
@@ -375,13 +408,20 @@
       ul.appendChild(li);
     }
     const empty = $('listEmpty');
-    if (items.length || view !== 'list') { empty.classList.add('hidden'); return; }
+    if (items.length || places.length || view !== 'list') { empty.classList.add('hidden'); return; }
     empty.classList.remove('hidden');
     const r = $('radiusSel').selectedOptions[0].textContent;
     if (S.search) empty.textContent = S.search.items ? 'No matches for “' + S.search.q + '”.' : 'Searching…';
     else if (S.loading) empty.textContent = 'Looking for nearby articles…';
     else if (S.fromCache || !navigator.onLine) empty.textContent = "You're offline, and nothing is saved for this spot yet. Articles you've already opened still work.";
     else empty.textContent = 'No Wikipedia articles within ' + r + '. Try a bigger radius.';
+  }
+
+  function sectionHead(t) {
+    const li = document.createElement('li');
+    li.className = 'sechead';
+    li.textContent = t;
+    return li;
   }
 
   /* ---------- Map ---------- */
@@ -495,12 +535,15 @@
     $('list').textContent = '';
     $('listEmpty').classList.remove('hidden');
     $('listEmpty').textContent = 'Searching…';
-    try { S.search.items = await searchWiki(q); }
-    catch (err) { S.search.items = []; $('listEmpty').textContent = 'Search needs a connection.'; return; }
+    const [places, arts] = await Promise.allSettled([geocode(q), searchWiki(q)]);
+    if (!S.search || S.search.q !== q) return;
+    S.search.places = places.status === 'fulfilled' ? places.value : [];
+    S.search.items = arts.status === 'fulfilled' ? arts.value : [];
+    if (places.status !== 'fulfilled' && arts.status !== 'fulfilled') { $('listEmpty').textContent = 'Search needs a connection.'; return; }
     pinKey = '';
     render();
   };
-  function clearSearch() {
+  function clearSearch(silent) {
     S.search = null;
     $('searchInput').value = '';
     $('searchClear').classList.add('hidden');
@@ -1076,14 +1119,18 @@
     $('placeInput').blur();
     const msg = $('placeErr');
     msg.textContent = 'Finding ' + q + '…';
-    try {
-      const hits = await searchWiki(q);
-      const hit = hits.find((h) => h.lat != null);
-      if (!hit) { msg.textContent = "Couldn't find a place called “" + q + '”. Try a town or landmark name.'; return; }
-      msg.textContent = '';
-      $('placeInput').value = '';
-      useLocation(hit.frTitle || hit.title, hit.lat, hit.lon);
-    } catch (err) { msg.textContent = 'Place search needs a connection. Pick a stop instead.'; }
+    let hit = null;
+    try { const g = await geocode(q); if (g[0]) hit = { name: g[0].name, lat: g[0].lat, lon: g[0].lon }; } catch (err) { /* try Wikipedia */ }
+    if (!hit) {
+      try {
+        const w = (await searchWiki(q)).find((h) => h.lat != null);
+        if (w) hit = { name: w.frTitle || w.title, lat: w.lat, lon: w.lon };
+      } catch (err) { msg.textContent = 'Place search needs a connection. Pick a stop instead.'; return; }
+    }
+    if (!hit) { msg.textContent = "Couldn't find “" + q + '”. Try a town, street address or landmark.'; return; }
+    msg.textContent = '';
+    $('placeInput').value = '';
+    useLocation(hit.name, hit.lat, hit.lon);
   };
 
   /* Install hint + banners */
