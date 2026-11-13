@@ -1,8 +1,15 @@
 (() => {
   'use strict';
-  const VERSION = '1.4.1';
+  const VERSION = '1.4.2';
+  // If the page and this script come from different versions, reload once to get a matching set.
+  if (document.documentElement.dataset.v !== VERSION) {
+    let tried = null;
+    try { tried = sessionStorage.getItem('wwReload'); sessionStorage.setItem('wwReload', VERSION); } catch (e) { /* ignore */ }
+    if (tried !== VERSION) { location.reload(); return; }
+  }
   const W = window.WW;
-  const $ = (id) => document.getElementById(id);
+  // Missing elements (e.g. an older cached page) get a throwaway stand-in instead of crashing the app.
+  const $ = (id) => document.getElementById(id) || document.createElement('div');
   const API = 'https://en.wikipedia.org/w/api.php';
   const API_HEADERS = { 'Api-User-Agent': 'WikiWalk/1.0 (https://walk.xoleigh.com; family walking-tour app)' };
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
