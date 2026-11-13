@@ -161,7 +161,11 @@ a { color: var(--green-2); }
   border: 1px solid var(--line); background: var(--card); font-size: 22px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
 .pin { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
 .pin.read { background: #9a988f; }
-.me { width: 18px; height: 18px; border-radius: 50%; background: #2a7de1; border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(42,125,225,.35); }
+.me { position: relative; width: 30px; height: 30px; }
+.me::before { content: ''; position: absolute; inset: -16px; border-radius: 50%; background: rgba(232,72,30,.4); animation: mepulse 2s ease-out infinite; }
+.me::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: #E8481E; border: 4px solid #fff; box-shadow: 0 1px 6px rgba(0,0,0,.45); }
+@keyframes mepulse { 0% { transform: scale(.45); opacity: .9; } 100% { transform: scale(1.25); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .me::before { animation: none; opacity: .5; } }
 .leaflet-popup-content { margin: 10px 12px; font: 15px/1.35 -apple-system, system-ui, sans-serif; }
 .popt { font-weight: 650; }
 .popd { color: #6b6a64; font-size: 13px; margin: 2px 0 8px; }

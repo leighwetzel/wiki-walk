@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.4.2';
+  const VERSION = '1.4.3';
   // If the page and this script come from different versions, reload once to get a matching set.
   if (document.documentElement.dataset.v !== VERSION) {
     let tried = null;
@@ -503,8 +503,8 @@
     if (!map || !S.pos) return;
     const ll = [S.pos.lat, S.pos.lon];
     if (!meMarker) {
-      accCircle = L.circle(ll, { radius: S.acc || 0, weight: 1, color: '#2a7de1', fillOpacity: 0.08, interactive: false }).addTo(map);
-      meMarker = L.marker(ll, { icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [18, 18] }), interactive: false, zIndexOffset: 1000 }).addTo(map);
+      accCircle = L.circle(ll, { radius: S.acc || 0, weight: 1, color: '#E8481E', fillColor: '#E8481E', fillOpacity: 0.1, interactive: false }).addTo(map);
+      meMarker = L.marker(ll, { icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [30, 30] }), interactive: false, zIndexOffset: 10000 }).addTo(map);
     } else { meMarker.setLatLng(ll); accCircle.setLatLng(ll); }
     accCircle.setRadius(S.source === 'gps' ? (S.acc || 0) : 0);
     if (follow && view === 'map') map.panTo(ll, { animate: true });
