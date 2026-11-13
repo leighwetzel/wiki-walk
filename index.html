@@ -55,6 +55,11 @@
     <section id="placePicker" class="hidden card">
       <p id="placeMsg">Location isn't available. Browse from a stop instead:</p>
       <select id="placeSel"></select>
+      <form id="placeForm" class="placeform">
+        <input id="placeInput" type="search" placeholder="Or type a place, e.g. Tournus" enterkeyhint="go" autocomplete="off">
+        <button class="btn" type="submit">Go</button>
+      </form>
+      <p id="placeErr" class="muted small"></p>
       <button id="useGpsBtn" class="btn secondary">Try GPS again</button>
     </section>
     <ul id="list" class="list"></ul>
@@ -62,6 +67,7 @@
     <div id="mapWrap" class="mapwrap hidden">
       <div id="map"></div>
       <button id="recenterBtn" class="mapbtn" aria-label="Center on me">◎</button>
+      <div id="mapHint" class="maphint hidden"></div>
     </div>
   </main>
 

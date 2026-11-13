@@ -1,5 +1,5 @@
 /* App-shell cache. Wikipedia data is stored by the app in IndexedDB, not here. */
-const CACHE = 'wikiwalk-v1.3.0';
+const CACHE = 'wikiwalk-v1.4.0';
 const TILES = 'wikiwalk-tiles';
 const MAX_TILES = 1500;
 const SHELL = [

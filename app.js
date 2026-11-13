@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.3.0';
+  const VERSION = '1.4.0';
   const W = window.WW;
   const $ = (id) => document.getElementById(id);
   const API = 'https://en.wikipedia.org/w/api.php';
@@ -211,10 +211,10 @@
   function startGps() {
     S.source = 'gps';
     $('placePicker').classList.add('hidden');
-    if (!('geolocation' in navigator)) { showPicker('This device has no location service. Browse from a stop instead:'); return; }
+    if (!('geolocation' in navigator)) { showPicker('This device has no location service. Pick a stop or type a place:'); return; }
     if (watchId != null) navigator.geolocation.clearWatch(watchId);
     $('locStatus').innerHTML = 'Finding your location… · <button class="linkbtn" id="pickStopNow">Pick a stop</button>';
-    $('pickStopNow').onclick = () => showPicker('Browse from a stop until GPS is available:');
+    $('pickStopNow').onclick = () => showPicker('Pick a stop or type a place until GPS finds you:');
     watchId = navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
   }
   function onPos(p) {
@@ -223,6 +223,7 @@
     S.pos = { lat: p.coords.latitude, lon: p.coords.longitude };
     S.acc = p.coords.accuracy;
     S.fixTime = Date.now();
+    ls.set('lastPos', S.pos);
     updateLocStatus();
     drawMe();
     maybeRefresh();
@@ -230,9 +231,9 @@
   function onPosErr(e) {
     if (S.source !== 'gps') return;
     if (e.code === 1) {
-      showPicker('Location is off for this app. Turn it on in iPhone Settings → Privacy & Security → Location Services (Safari Websites), or browse from a stop:');
+      showPicker('Location is off for this app. Turn it on in iPhone Settings → Privacy & Security → Location Services (Safari Websites), or pick a stop or type a place:');
     } else if (!S.pos) {
-      showPicker("Can't get a GPS fix yet. Keep waiting, or browse from a stop:");
+      showPicker("Can't get a GPS fix yet. Keep waiting, or pick a stop or type a place:");
     }
   }
   function showPicker(msg) {
@@ -242,10 +243,13 @@
   }
   function useStop(id) {
     const st = W.STOPS.find((s) => s.id === id);
-    if (!st) return;
+    if (st) useLocation(st.name, st.lat, st.lon);
+  }
+  function useLocation(name, lat, lon) {
     S.source = 'stop';
-    S.stopName = st.name;
-    S.pos = { lat: st.lat, lon: st.lon };
+    S.stopName = name;
+    S.pos = { lat, lon };
+    ls.set('lastPos', S.pos);
     S.acc = null;
     S.center = null;
     $('placePicker').classList.add('hidden');
@@ -258,8 +262,9 @@
     const el = $('locStatus');
     if (!S.pos) return;
     if (S.source === 'stop') {
-      el.innerHTML = 'Browsing from <b>' + esc(S.stopName) + '</b> · <button class="linkbtn" id="backToGps">Use GPS</button>';
+      el.innerHTML = 'Browsing from <b>' + esc(S.stopName) + '</b> · <button class="linkbtn" id="changeLoc">Change</button> · <button class="linkbtn" id="backToGps">Use GPS</button>';
       $('backToGps').onclick = startGps;
+      $('changeLoc').onclick = () => showPicker('Browse from a stop or any place:');
       return;
     }
     const secs = Math.round((Date.now() - S.fixTime) / 1000);
@@ -300,14 +305,12 @@
   }
   function trimSeen() {
     const ids = Object.keys(S.seen);
-    if (ids.length <= 3000 || !S.pos) return;
+    if (ids.length <= 6000 || !S.pos) return;
     ids.map((id) => [id, W.distanceM(S.pos.lat, S.pos.lon, S.seen[id].lat, S.seen[id].lon)])
-      .sort((a, b) => b[1] - a[1]).slice(0, ids.length - 3000).forEach(([id]) => delete S.seen[id]);
+      .sort((a, b) => b[1] - a[1]).slice(0, ids.length - 6000).forEach(([id]) => delete S.seen[id]);
   }
 
-  function currentItems() {
-    if (!S.pos) return [];
-    if (S.search) return [];
+  function dedupedSeen() {
     const fr = frEnabled();
     const byTitle = new Map();
     for (const p of Object.values(S.seen)) {
@@ -319,7 +322,25 @@
       else if (typeof prev.id !== 'number' && typeof p.id === 'number') byTitle.set(k, { ...p, desc: p.desc || prev.desc });
       else if (typeof p.id !== 'number' && typeof prev.id === 'number' && !prev.desc) byTitle.set(k, { ...prev, desc: p.desc });
     }
-    return [...byTitle.values()].map((p) => ({
+    return [...byTitle.values()];
+  }
+  function withDist(p) {
+    return S.pos ? { ...p, d: W.distanceM(S.pos.lat, S.pos.lon, p.lat, p.lon), b: W.bearingDeg(S.pos.lat, S.pos.lon, p.lat, p.lon) } : { ...p };
+  }
+  // Map view: everything saved inside the visible area (plus a margin), nearest to the map center first.
+  function mapItems() {
+    if (!map) return [];
+    const bounds = map.getBounds().pad(0.15);
+    const c = map.getCenter();
+    return dedupedSeen().filter((p) => bounds.contains([p.lat, p.lon]))
+      .map((p) => ({ p, k: W.distanceM(c.lat, c.lng, p.lat, p.lon) }))
+      .sort((a, b) => a.k - b.k).slice(0, 400).map((x) => withDist(x.p));
+  }
+
+  function currentItems() {
+    if (!S.pos) return [];
+    if (S.search) return [];
+    return dedupedSeen().map((p) => ({
       ...p,
       d: W.distanceM(S.pos.lat, S.pos.lon, p.lat, p.lon),
       b: W.bearingDeg(S.pos.lat, S.pos.lon, p.lat, p.lon),
@@ -327,7 +348,7 @@
   }
 
   function render() {
-    if (!S.pos && !S.search) return;
+    if (!S.pos && !S.search) { if (view === 'map') drawPins(mapItems()); return; }
     if (S.pos) S.lastSortPos = { ...S.pos };
     let items = currentItems();
     if (S.search) {
@@ -335,7 +356,7 @@
         ...p, d: W.distanceM(S.pos.lat, S.pos.lon, p.lat, p.lon), b: W.bearingDeg(S.pos.lat, S.pos.lon, p.lat, p.lon),
       } : { ...p }));
     }
-    drawPins(items.filter((p) => p.lat != null));
+    drawPins(S.search ? items.filter((p) => p.lat != null) : mapItems());
 
     const ul = $('list');
     ul.textContent = '';
@@ -377,7 +398,7 @@
       $('listEmpty').classList.add('hidden');
       if (!window.L) { $('mapWrap').innerHTML = '<p class="muted center">The map could not load.</p>'; return; }
       initMap();
-      setTimeout(() => { map.invalidateSize(); pinKey = ''; drawMe(); render(); centerMap(); }, 60);
+      setTimeout(() => { map.invalidateSize(); pinKey = ''; drawMe(); centerMap(); render(); loadMapArea(); }, 60);
     } else render();
     ls.set('view', v);
   }
@@ -390,8 +411,41 @@
     }).addTo(map);
     pinLayer = L.layerGroup().addTo(map);
     map.on('dragstart', () => { follow = false; });
-    if (S.pos) map.setView([S.pos.lat, S.pos.lon], zoomFor(S.radius));
+    map.on('moveend', () => { clearTimeout(mapMoveTimer); mapMoveTimer = setTimeout(loadMapArea, 700); });
+    const last = S.pos || ls.get('lastPos', null);
+    if (last) map.setView([last.lat, last.lon], zoomFor(S.radius));
     else map.setView([45.764, 4.8357], 13);
+  }
+
+  // When you pan or zoom out on the map, fetch places for the area on screen.
+  let mapMoveTimer = null;
+  const mapFetched = []; // circles already loaded this session: {lat, lon, r}
+  async function loadMapArea() {
+    if (!map || view !== 'map' || S.search) return;
+    const c = map.getCenter();
+    const r = Math.min(10000, map.distance(c, map.getBounds().getNorthEast()));
+    drawPins(mapItems());
+    if (map.getZoom() < 12) { mapHint('Zoom in to load places'); return; }
+    const covered = mapFetched.some((f) => W.distanceM(f.lat, f.lon, c.lat, c.lng) + r <= f.r * 1.05);
+    if (covered) { mapHint(''); return; }
+    mapHint('Loading places…');
+    const langs = frEnabled() ? ['en', 'fr'] : ['en'];
+    const res = await Promise.allSettled(langs.map((l) => fetchNearby(c.lat, c.lng, r, l)));
+    let ok = false;
+    for (const x of res) {
+      if (x.status !== 'fulfilled') continue;
+      ok = true;
+      for (const p of x.value) S.seen[p.id] = p;
+    }
+    if (ok) { mapFetched.push({ lat: c.lat, lon: c.lng, r }); trimSeen(); db.put('kv', 'seen', S.seen); mapHint(''); }
+    else mapHint('Offline: showing saved places');
+    pinKey = '';
+    drawPins(mapItems());
+  }
+  function mapHint(t) {
+    const el = $('mapHint');
+    el.textContent = t;
+    el.classList.toggle('hidden', !t);
   }
   function centerMap() {
     if (!map || !S.pos) return;
@@ -1015,6 +1069,22 @@
     W.STOPS.map((s) => '<option value="' + s.id + '">' + esc(s.name) + '</option>').join('');
   $('placeSel').onchange = (e) => { if (e.target.value) useStop(e.target.value); };
   $('useGpsBtn').onclick = startGps;
+  $('placeForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const q = $('placeInput').value.trim();
+    if (!q) return;
+    $('placeInput').blur();
+    const msg = $('placeErr');
+    msg.textContent = 'Finding ' + q + '…';
+    try {
+      const hits = await searchWiki(q);
+      const hit = hits.find((h) => h.lat != null);
+      if (!hit) { msg.textContent = "Couldn't find a place called “" + q + '”. Try a town or landmark name.'; return; }
+      msg.textContent = '';
+      $('placeInput').value = '';
+      useLocation(hit.frTitle || hit.title, hit.lat, hit.lon);
+    } catch (err) { msg.textContent = 'Place search needs a connection. Pick a stop instead.'; }
+  };
 
   /* Install hint + banners */
   const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;

@@ -179,3 +179,8 @@ body[data-sheet="settingsView"] #player { display: none; }
 
 .search { display: flex; gap: 6px; align-items: center; margin: 10px 12px 0; }
 .search input { flex: 1; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); font-size: 16px; -webkit-appearance: none; }
+
+.placeform { display: flex; gap: 8px; margin: 0 0 6px; }
+.placeform input { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 16px; -webkit-appearance: none; }
+.maphint { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 500; background: var(--card); color: var(--text);
+  border: 1px solid var(--line); border-radius: 99px; padding: 5px 12px; font-size: 13px; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,.15); white-space: nowrap; }
