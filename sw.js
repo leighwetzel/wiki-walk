@@ -1,5 +1,5 @@
 /* App-shell cache. Wikipedia data is stored by the app in IndexedDB, not here. */
-const CACHE = 'wikiwalk-v1.4.3';
+const CACHE = 'wikiwalk-v1.4.4';
 const TILES = 'wikiwalk-tiles';
 const MAX_TILES = 1500;
 const SHELL = [
@@ -12,6 +12,7 @@ const SHELL = [
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/apple-touch-icon.png',
+  'icons/icon-maskable-512.png',
   'vendor/leaflet/leaflet.js',
   'vendor/leaflet/leaflet.css',
 ];

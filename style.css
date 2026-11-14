@@ -1,19 +1,19 @@
 :root {
-  --brand: #1E4E6B;      /* river blue: buttons, player */
-  --accent: #1E5F86;     /* links, pins, checkmarks */
+  --brand: #3B4A6B;      /* slate, matches TV Rex: buttons, player */
+  --accent: #3B4A6B;     /* links, pins, checkmarks */
   --header-bg: #FFFFFF;
   --header-fg: #1c1c1a;
-  --chip-bg: #E3EDF4;
-  --chip-fg: #1E4E6B;
+  --chip-bg: #E8EBF1;
+  --chip-fg: #3B4A6B;
   --on-accent-btn: #fff;
   --green: var(--brand);
   --green-2: var(--accent);
-  --bg: #F7F6F3;
+  --bg: #F4F4F2;
   --card: #ffffff;
-  --text: #1c1c1a;
-  --muted: #6e6c66;
-  --line: #E6E3DC;
-  --hl: #E3EDF4;
+  --text: #1E1C19;
+  --muted: #55524C;
+  --line: #D6D9E0;
+  --hl: #E8EBF1;
   --fs: 19px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
@@ -25,12 +25,12 @@
     --text: #ecebe6;
     --muted: #9c9a92;
     --line: #2c2f33;
-    --hl: #1d3445;
-    --accent: #7FB3D5;
+    --hl: #262E42;
+    --accent: #A9B6D3;
     --header-bg: #1c1e20;
     --header-fg: #ecebe6;
-    --chip-bg: #1d3445;
-    --chip-fg: #B5D4EA;
+    --chip-bg: #262E42;
+    --chip-fg: #C9D2E6;
   }
 }
 * { box-sizing: border-box; }
