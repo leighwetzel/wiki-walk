@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.4.4';
+  const VERSION = '1.4.5';
   // If the page and this script come from different versions, reload once to get a matching set.
   if (document.documentElement.dataset.v !== VERSION) {
     let tried = null;
@@ -587,7 +587,7 @@
   }
   window.addEventListener('popstate', closeSheets);
   $('backBtn').onclick = () => history.back();
-  $('settingsBack').onclick = () => history.back();
+  $('settingsBack').onclick = () => { $('aiKey').blur(); history.back(); };
 
   function markRead(id) {
     if (S.read.has(id)) return;
@@ -1065,7 +1065,16 @@
   };
   $('wakeChk').onchange = (e) => ls.set('wake', e.target.checked);
   $('frChk').onchange = (e) => { ls.set('fr', e.target.checked); S.center = null; pinKey = ''; render(); };
-  $('aiKey').onchange = (e) => { ls.set('aiKey', e.target.value.trim()); $('aiStatus').textContent = e.target.value.trim() ? 'Key saved on this phone. Tap Test AI voice.' : 'No key: the iPhone voice will read.'; };
+  // Save on every keystroke/paste, not just on 'change': on iPhone, tapping Back or closing the app
+  // often doesn't blur the field, so 'change' never fires and the key was lost.
+  const saveKey = () => {
+    const v = $('aiKey').value.trim();
+    if (v === aiKey()) return;
+    ls.set('aiKey', v);
+    $('aiStatus').textContent = v ? 'Key saved on this phone. Tap Test AI voice.' : 'No key: the iPhone voice will read.';
+  };
+  $('aiKey').oninput = saveKey;
+  $('aiKey').onchange = saveKey;
   $('aiVoiceSel').onchange = (e) => ls.set('aiVoice', e.target.value);
   $('testAiBtn').onclick = async () => {
     const st = $('aiStatus');
