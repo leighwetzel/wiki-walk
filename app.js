@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.4.6';
+  const VERSION = '1.4.7';
   // If the page and this script come from different versions, reload once to get a matching set.
   if (document.documentElement.dataset.v !== VERSION) {
     let tried = null;
@@ -517,7 +517,7 @@
     pinLayer.clearLayers();
     for (const p of items) {
       const m = L.marker([p.lat, p.lon], {
-        icon: L.divIcon({ className: '', html: '<div class="pin' + (S.read.has(p.id) ? ' read' : '') + '"></div>', iconSize: [22, 22] }),
+        icon: L.divIcon({ className: '', html: '<div class="pin' + (S.read.has(p.id) ? ' read' : '') + '"></div>', iconSize: [16, 16] }),
         title: p.title,
       });
       m.bindPopup(() => {

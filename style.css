@@ -159,7 +159,7 @@ a { color: var(--green-2); }
 #map { position: absolute; inset: 0; background: #e8e6df; }
 .mapbtn { position: absolute; right: 10px; bottom: 10px; z-index: 500; width: 46px; height: 46px; border-radius: 12px;
   border: 1px solid var(--line); background: var(--card); font-size: 22px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
-.pin { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.pin { width: 16px; height: 16px; border-radius: 50%; background: #3B4A6B; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
 .pin.read { background: #9a988f; }
 .me { position: relative; width: 30px; height: 30px; }
 .me::before { content: ''; position: absolute; inset: -16px; border-radius: 50%; background: rgba(232,72,30,.4); animation: mepulse 2s ease-out infinite; }
