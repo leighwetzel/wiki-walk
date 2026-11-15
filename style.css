@@ -53,7 +53,10 @@ a { color: var(--green-2); }
   padding: calc(var(--safe-t) + 10px) 16px 10px;
   background: var(--header-bg); color: var(--header-fg); border-bottom: 1px solid var(--line);
 }
-.topbar h1 { font-size: 20px; margin: 0; flex: 1; letter-spacing: -0.01em; }
+.topbar .brand { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.topbar .logo { width: 44px; height: 44px; flex: none; border-radius: 22.5%; box-shadow: 0 0 0 1.5px #C9CDD6; } /* outline so the white icon reads on white */
+.topbar h1 { font-size: 22px; line-height: 1.1; margin: 0; letter-spacing: -0.01em; }
+.topbar .tagline { margin: 2px 0 0; font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar .iconbtn { color: var(--header-fg); font-size: 22px; }
 .chip {
   font-size: 13px; font-weight: 600; padding: 3px 9px; border-radius: 99px;
