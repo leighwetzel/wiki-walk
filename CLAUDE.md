@@ -34,3 +34,6 @@ Ship small, working changes fast; she tests on her iPhone right away. Explain in
 - "Save this area" button: download the nearby list plus article text on Wi-Fi for dead zones.
 - Optional relay server if OpenAI ever blocks direct browser calls.
 - Approximate stop coordinates in `lib.js` (`STOPS`) are town centers; add new trip stops there.
+
+## Analytics
+Google Analytics loads through the Google tag `GTM-K6GPQTLB` (added Nov 16, 2026), pasted at the top of `<head>` in `index.html`. One GA4 stream covers xoleigh.com and the walk/tv subdomains; keep the same tag on all three.
