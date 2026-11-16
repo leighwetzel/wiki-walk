@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.5.9';
+  const VERSION = '1.5.10';
   // If the page and this script come from different versions, reload once to get a matching set.
   if (document.documentElement.dataset.v !== VERSION) {
     let tried = null;
