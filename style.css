@@ -15,7 +15,7 @@
   --line: #DCE2E8;
   --control: #E9EDF1;
   --hl: #E4EEF9;
-  --fs: 20px;
+  --fs: 21px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
 }
@@ -38,7 +38,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
 body {
-  font: 18px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font: 19px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   -webkit-text-size-adjust: 100%;
   padding-bottom: calc(var(--safe-b) + 96px);
 }
