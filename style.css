@@ -1,19 +1,20 @@
 :root {
-  --brand: #3B4A6B;      /* slate, matches TV Rex: buttons, player */
-  --accent: #3B4A6B;     /* links, pins, checkmarks */
+  --brand: #2864B4;      /* shared xoleigh blue, same as TV Rex: buttons, player */
+  --accent: #2864B4;     /* links, pins, checkmarks */
   --header-bg: #FFFFFF;
-  --header-fg: #1c1c1a;
-  --chip-bg: #E8EBF1;
-  --chip-fg: #3B4A6B;
+  --header-fg: #2B2B2B;
+  --chip-bg: #E4EEF9;
+  --chip-fg: #2864B4;
   --on-accent-btn: #fff;
   --green: var(--brand);
   --green-2: var(--accent);
-  --bg: #F4F4F2;
+  --bg: #F1F4F8;
   --card: #ffffff;
-  --text: #1E1C19;
-  --muted: #55524C;
-  --line: #D6D9E0;
-  --hl: #E8EBF1;
+  --text: #2B2B2B;
+  --muted: #626970;
+  --line: #DCE2E8;
+  --control: #E9EDF1;
+  --hl: #E4EEF9;
   --fs: 19px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
@@ -25,12 +26,13 @@
     --text: #ecebe6;
     --muted: #9c9a92;
     --line: #2c2f33;
-    --hl: #262E42;
-    --accent: #A9B6D3;
+    --hl: #1E3350;
+    --accent: #8DB4E8;
+    --control: #2c2f33;
     --header-bg: #1c1e20;
     --header-fg: #ecebe6;
-    --chip-bg: #262E42;
-    --chip-fg: #C9D2E6;
+    --chip-bg: #1E3350;
+    --chip-fg: #C5D9F2;
   }
 }
 * { box-sizing: border-box; }
@@ -54,7 +56,7 @@ a { color: var(--green-2); }
   background: var(--header-bg); color: var(--header-fg); border-bottom: 1px solid var(--line);
 }
 .topbar .brand { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
-.topbar .logo { width: 44px; height: 44px; flex: none; border-radius: 22.5%; box-shadow: 0 0 0 1.5px #C9CDD6; } /* outline so the white icon reads on white */
+.topbar .logo { width: 44px; height: 44px; flex: none; border-radius: 22.5%; box-shadow: 0 0 0 1.5px #C9D2DD; } /* outline so the white icon reads on white */
 .topbar h1 { font-size: 22px; line-height: 1.1; margin: 0; letter-spacing: -0.01em; }
 .topbar .tagline { margin: 2px 0 0; font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar .iconbtn { color: var(--header-fg); font-size: 22px; }
@@ -152,7 +154,7 @@ a { color: var(--green-2); }
 .plcontrols { display: flex; justify-content: space-around; align-items: center; }
 
 /* List / Map toggle */
-.seg { display: flex; margin: 10px 12px 0; background: var(--line); border-radius: 10px; padding: 3px; }
+.seg { display: flex; margin: 10px 12px 0; background: var(--control); border-radius: 10px; padding: 3px; }
 .seg button { flex: 1; border: 0; background: none; padding: 7px 0; border-radius: 8px; font-weight: 600; font-size: 15px; color: var(--muted); }
 .seg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
 
@@ -162,8 +164,8 @@ a { color: var(--green-2); }
 #map { position: absolute; inset: 0; background: #e8e6df; }
 .mapbtn { position: absolute; right: 10px; bottom: 10px; z-index: 500; width: 46px; height: 46px; border-radius: 12px;
   border: 1px solid var(--line); background: var(--card); font-size: 22px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
-.pin { width: 16px; height: 16px; border-radius: 50%; background: #3B4A6B; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
-.pin.read { background: #9a988f; }
+.pin { width: 16px; height: 16px; border-radius: 50%; background: var(--brand); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.pin.read { background: #9AA3AD; }
 .me { position: relative; width: 30px; height: 30px; }
 .me::before { content: ''; position: absolute; inset: -16px; border-radius: 50%; background: rgba(232,72,30,.4); animation: mepulse 2s ease-out infinite; }
 .me::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: #E8481E; border: 4px solid #fff; box-shadow: 0 1px 6px rgba(0,0,0,.45); }
@@ -171,7 +173,7 @@ a { color: var(--green-2); }
 @media (prefers-reduced-motion: reduce) { .me::before { animation: none; opacity: .5; } }
 .leaflet-popup-content { margin: 10px 12px; font: 15px/1.35 -apple-system, system-ui, sans-serif; }
 .popt { font-weight: 650; }
-.popd { color: #6b6a64; font-size: 13px; margin: 2px 0 8px; }
+.popd { color: #626970; font-size: 13px; margin: 2px 0 8px; }
 .popbtn { border: 0; background: var(--brand); color: #fff; border-radius: 8px; padding: 7px 12px; font-weight: 600; }
 .voicenote { font-size: 13px; color: var(--muted); margin: -2px 0 10px; }
 #settingsView .btn { display: block; width: 100%; margin: 8px 0; }
