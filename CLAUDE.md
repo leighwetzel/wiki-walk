@@ -1,6 +1,6 @@
 # Wiki Walk
 
-Leigh's family iPhone web app: nearby Wikipedia articles (English + French) sorted by distance, a map, and read-aloud. Live at https://walk.xoleigh.com. Built for a November 2026 France trip (Rhône/Saône cruise, then Beaune), and now a keeper project. It's one of her xoleigh.com side projects and matches TV Rex's slate look.
+Leigh's family iPhone web app: nearby Wikipedia articles (English + French) sorted by distance, a map, and read-aloud. Live at https://walk.xoleigh.com. Built for a November 2026 France trip (Rhône/Saône cruise, then Beaune), and now a keeper project. It's one of her xoleigh.com side projects and shares TV Rex's look (the "xoleigh apps" design system: blue #2864B4 on #F1F4F8, system font, rounded cards).
 
 ## How it's built
 - Static PWA, no build step: `index.html`, `style.css`, `lib.js` (pure helpers, testable in Node), `app.js` (all UI), `sw.js` (service worker), `vendor/leaflet/`.
