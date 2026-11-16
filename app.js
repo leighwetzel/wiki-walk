@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.5.0';
+  const VERSION = '1.5.1';
   // If the page and this script come from different versions, reload once to get a matching set.
   if (document.documentElement.dataset.v !== VERSION) {
     let tried = null;
@@ -1113,9 +1113,9 @@
 
   /* Text size */
   function applyFs(px) { document.documentElement.style.setProperty('--fs', px + 'px'); ls.set('fs', px); }
-  applyFs(ls.get('fs', 19));
-  $('textSmaller').onclick = () => applyFs(Math.max(15, ls.get('fs', 19) - 2));
-  $('textLarger').onclick = () => applyFs(Math.min(27, ls.get('fs', 19) + 2));
+  applyFs(ls.get('fs', 20));
+  $('textSmaller').onclick = () => applyFs(Math.max(15, ls.get('fs', 20) - 2));
+  $('textLarger').onclick = () => applyFs(Math.min(27, ls.get('fs', 20) + 2));
 
   /* Radius */
   const rs = $('radiusSel');
