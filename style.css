@@ -201,7 +201,7 @@ body[data-sheet="settingsView"] #player { display: none; }
 .li-dist.go { color: var(--accent); font-weight: 650; }
 
 /* Footer shared with TV Rex: other app, Feedback, xoleigh.com */
-.appfooter { margin: 24px 0 calc(-1 * (var(--safe-b) + 96px)); padding: 20px 12px calc(var(--safe-b) + 96px + 16px); background: var(--card); border-top: 1px solid var(--line); /* white to the bottom of the page */ display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.appfooter { margin: 24px 0 0; padding: 16px 12px 12px; background: var(--card); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
 .appfooter .other { display: flex; align-items: center; gap: 10px; min-height: 44px; color: var(--text); text-decoration: none; text-align: left; }
 .appfooter .other img { width: 36px; height: 36px; border-radius: 22.5%; box-shadow: 0 0 0 1px var(--line); }
 .appfooter .other strong { display: block; font-size: 17px; }
