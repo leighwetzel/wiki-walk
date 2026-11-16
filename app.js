@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION = '1.5.4';
+  const VERSION = '1.5.5';
   // If the page and this script come from different versions, reload once to get a matching set.
   if (document.documentElement.dataset.v !== VERSION) {
     let tried = null;
@@ -441,6 +441,7 @@
     $('tabMap').classList.toggle('on', v === 'map');
     $('list').classList.toggle('hidden', v !== 'list');
     $('mapWrap').classList.toggle('hidden', v !== 'map');
+    $('appFooter').classList.toggle('hidden', v !== 'list');
     if (v === 'map') {
       $('listEmpty').classList.add('hidden');
       if (!window.L) { $('mapWrap').innerHTML = '<p class="muted center">The map could not load.</p>'; return; }
