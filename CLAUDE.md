@@ -37,3 +37,7 @@ Ship small, working changes fast; she tests on her iPhone right away. Explain in
 
 ## Analytics
 Google Analytics uses the standard gtag.js snippet for measurement ID `G-X6FH2TP6C8` (stream "xoleigh (all)", added Nov 16, 2026), right after `<meta charset>` in `index.html`. One GA4 stream covers xoleigh.com and the walk/tv subdomains; keep the same snippet on all three. (A GTM container, GTM-K6GPQTLB, was tried first and replaced; don't add both or visits double count.)
+
+## Release notes (shown on xoleigh.com)
+
+When you ship a change people will notice, add a line at the top of `updates.json` in the same commit: `{"date": "YYYY-MM-DD", "text": "..."}`. One short sentence, written the way you'd tell a relative (no jargon, no internal names). Skip fixes nobody would notice, and group same-day changes. The xoleigh.com home page reads this file live, so nothing else needs updating.
